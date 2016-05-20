@@ -16,7 +16,7 @@ namespace twitchbot
     {
         static Regex singleItem = new Regex(@"^[^\s]+\s+([^\s]+)");
 
-        public static string Owner { get; private set; };
+        public static string Owner { get; private set; }
 
         static void Main(string[] args)
         {
