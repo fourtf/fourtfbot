@@ -16,7 +16,7 @@ namespace twitchbot
     {
         static Regex singleItem = new Regex(@"^[^\s]+\s+([^\s]+)");
 
-        public static string Owner { get; private set; }
+        public static string Owner { get; private set; };
 
         static void Main(string[] args)
         {
@@ -26,10 +26,10 @@ namespace twitchbot
 
             try
             {
-                Owner = File.ReadAllText("owner");
-                string username = File.ReadAllText("username");
-                string oauthkey = File.ReadAllText("oauthkey");
-                string[] channels = File.ReadAllLines("channels").Select(s => "#" + s.Trim()).ToArray();
+                Owner = File.ReadAllText("owner").Trim();
+                string username = File.ReadAllText("username").Trim();
+                string oauthkey = File.ReadAllText("oauthkey").Trim();
+                string[] channels = File.ReadAllLines("channels").Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => "#" + s.Trim()).ToArray();
 
                 bot = new Bot(username, oauthkey)
                 {
@@ -679,6 +679,7 @@ namespace twitchbot
             }
             ));
             #endregion
+
 
             // ROLEPLAYER SHIT
             #region shoot

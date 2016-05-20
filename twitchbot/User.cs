@@ -21,7 +21,7 @@ namespace twitchbot
         public UserFlags Flags { get; set; }
 
         public bool IsBanned { get { return Flags.HasFlag(UserFlags.Banned); } }
-        public bool IsAdmin { get { return Name.Equals(Program.Owner, StringComparison.OrdinalIgnoreCase) || Flags.HasFlag(UserFlags.Admin); } }
+        public bool IsAdmin { get { return Name == Program.Owner || Flags.HasFlag(UserFlags.Admin); } }
         public bool IsMod { get { return Flags.HasFlag(UserFlags.Mod); } }
         public bool IsBot { get { return Flags.HasFlag(UserFlags.Bot); } }
 
