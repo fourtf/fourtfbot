@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace twitchbot
@@ -1431,9 +1432,8 @@ namespace twitchbot
                 adminOnly: true));
             #endregion
 
-
-            while (true)
-                System.Threading.Thread.Sleep(1000);
+            ManualResetEvent waitEvent = new ManualResetEvent(false);
+            waitEvent.WaitOne();
 
             //AppDomain.CurrentDomain.ProcessExit += (s, e) => { bot.Save(); };
         }

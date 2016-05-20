@@ -38,12 +38,13 @@ namespace twitchbot
             byte[] bytes = Encoding.UTF8.GetBytes(s);
             int length = bytes.Length;
             stream.WriteByte((byte)(length & 0xFF));
+            stream.WriteByte((byte)(length >> 8));
             stream.Write(bytes, 0, length);
         }
 
         public static string ReadString(this Stream stream)
         {
-            int length = stream.ReadByte();
+            int length = stream.ReadByte() | (stream.ReadByte() << 8);
             byte[] buffer = new byte[length];
             stream.Read(buffer, 0, length);
             return Encoding.UTF8.GetString(buffer);
