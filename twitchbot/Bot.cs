@@ -92,6 +92,22 @@ namespace twitchbot
             public string ToUser { get; set; }
         }
 
+
+        // TRADES
+        public TimeSpan TradeTimeout { get; set; } = TimeSpan.FromMinutes(30);
+
+        public List<TradeItem> Trades { get; private set; } = new List<TradeItem>();
+
+        public class TradeItem
+        {
+            public IEnumerable<Tuple<ShopItem, long>> Gives { get; set; }
+            public IEnumerable<Tuple<ShopItem, long>> Wants{ get; set; }
+
+            public DateTime ExpireDate { get; set; }
+            public string User { get; set; }
+        }
+
+
         // EVAL COMMANDS
         public List<EvalCommand> EvalCommands = new List<EvalCommand>();
 
@@ -477,6 +493,11 @@ namespace twitchbot
             lock (Duels)
             {
                 Duels.RemoveAll(d => d.ExpireDate < DateTime.Now);
+            }
+
+            lock (Trades)
+            {
+                Trades.RemoveAll(d => d.ExpireDate < DateTime.Now);
             }
 
             new Task(() =>

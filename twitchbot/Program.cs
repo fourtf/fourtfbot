@@ -464,9 +464,9 @@ namespace twitchbot
             ));
             #endregion
 
-            #region duel
+            #region fight
             bot.Commands.Add(new Command(
-            "dule",
+            "fight",
             (m, u, c) =>
             {
                 string[] S = m.ToLowerInvariant().Split();
@@ -481,7 +481,7 @@ namespace twitchbot
                 {
                     if (!u.IsAdmin && u == user)
                     {
-                        bot.Say(c, $"{u} is trying to duel himself LUL");
+                        bot.Say(c, $"{u} is trying to fight himself LUL");
                         return;
                     }
 
@@ -531,97 +531,242 @@ namespace twitchbot
 
                             bot.Say(c, $"{u} is dueling {user} for {item.GetNumber(count)} PogChamp");
 
-                            bot.Whisper(user.Name, $"{u} is dueling you for {item.GetNumber(count)}. Write !acept in chat to accept or !deyn to deny.");
+                            bot.Whisper(user.Name, $"{u} is dueling you for {item.GetNumber(count)}. Type \"!fight accept\" in chat to accept or \"!fight deny\" to deny.");
+                        }
+                    }
+                }
+                else if (S.TryIsString(1, "accept"))
+                {
+                    lock (bot.Duels)
+                    {
+                        int index;
+                        if ((index = bot.Duels.FindIndex(d => d.ToUser == u.Name)) != -1)
+                        {
+                            var duel = bot.Duels[index];
+
+                            User from = bot.GetUserOrDefault(duel.FromUser);
+
+                            if (from == null)
+                                return;
+
+                            if (duel.Item == null ? (u.Points < duel.Count) : (u.ItemCount(duel.Item.Name) < duel.Count))
+                            {
+                                bot.Say(c, $"{c}, you don't have enought {duel.Item.GetPlural()}, the duel was canceled.");
+                            }
+                            else if (duel.Item == null ? (from.Points < duel.Count) : (from.ItemCount(duel.Item.Name) < duel.Count))
+                            {
+                                bot.Say(c, $"{c}, {from} doesn't have enought {duel.Item.GetPlural()}, the duel was canceled.");
+                            }
+                            else
+                            {
+                                User winner = Util.GetRandom(50) ? u : from;
+                                User loser = winner == u ? from : u;
+
+                                bot.ForceSay(c, $"{winner} won the duel against {loser} and got {duel.Item.GetNumber(duel.Count)} PogChamp");
+                                bot.Whisper(winner.Name, $"You won the duel against {loser} and got {duel.Item.GetNumber(duel.Count)} PogChamp");
+                                bot.Whisper(loser.Name, $"You lost the duel against {winner} for {duel.Item.GetNumber(duel.Count)} FeelsBadMan");
+
+                                if (duel.Item == null)
+                                {
+                                    winner.Points += duel.Count;
+                                    loser.Points -= duel.Count;
+                                }
+                                else
+                                {
+                                    winner.AddItem(duel.Item.Name, duel.Count);
+                                    loser.RemoveItem(duel.Item.Name, duel.Count);
+                                }
+                            }
+                            bot.Duels.RemoveAt(index);
+                        }
+                        else
+                        {
+                            bot.Whisper(u.Name, $"You are not getting duelled at the moment.");
+                        }
+                    }
+                }
+                else if (S.TryIsString(1, "deny"))
+                {
+                    lock (bot.Duels)
+                    {
+                        int index;
+                        if ((index = bot.Duels.FindIndex(d => d.ToUser == u.Name)) != -1)
+                        {
+                            var duel = bot.Duels[index];
+
+                            User from = bot.GetUserOrDefault(duel.FromUser);
+
+                            if (from == null)
+                                return;
+
+                            bot.Whisper(from.Name, $"{u} denied your duel for {duel.Item.GetNumber(duel.Count)}.");
+
+                            bot.Duels.RemoveAt(index);
                         }
                     }
                 }
                 else
                 {
-                    bot.Say(c, $"{u}, to duel someone type !dule <user> <count> [item]");
-                }
-            }
-            ));
-
-            bot.Commands.Add(new Command(
-            "acept",
-            (m, u, c) =>
-            {
-                lock (bot.Duels)
-                {
-                    int index;
-                    if ((index = bot.Duels.FindIndex(d => d.ToUser == u.Name)) != -1)
-                    {
-                        var duel = bot.Duels[index];
-
-                        User from = bot.GetUserOrDefault(duel.FromUser);
-
-                        if (from == null)
-                            return;
-
-                        if (duel.Item == null ? (u.Points < duel.Count) : (u.ItemCount(duel.Item.Name) < duel.Count))
-                        {
-                            bot.Say(c, $"{c}, you don't have enought {duel.Item.GetPlural()}, the duel was canceled.");
-                        }
-                        else if (duel.Item == null ? (from.Points < duel.Count) : (from.ItemCount(duel.Item.Name) < duel.Count))
-                        {
-                            bot.Say(c, $"{c}, {from} doesn't have enought {duel.Item.GetPlural()}, the duel was canceled.");
-                        }
-                        else
-                        {
-                            User winner = Util.GetRandom(50) ? u : from;
-                            User loser = winner == u ? from : u;
-
-                            bot.ForceSay(c, $"{winner} won the duel against {loser} and got {duel.Item.GetNumber(duel.Count)} PogChamp");
-                            bot.Whisper(winner.Name, $"You won the duel against {loser} and got {duel.Item.GetNumber(duel.Count)} PogChamp");
-                            bot.Whisper(loser.Name, $"You lost the duel against {winner} for {duel.Item.GetNumber(duel.Count)} FeelsBadMan");
-
-                            if (duel.Item == null)
-                            {
-                                winner.Points += duel.Count;
-                                loser.Points -= duel.Count;
-                            }
-                            else
-                            {
-                                winner.AddItem(duel.Item.Name, duel.Count);
-                                loser.RemoveItem(duel.Item.Name, duel.Count);
-                            }
-                        }
-                        bot.Duels.RemoveAt(index);
-                    }
-                    else
-                    {
-                        bot.Whisper(u.Name, $"You are not getting duelled at the moment.");
-                    }
-                }
-            }
-            ));
-
-            bot.Commands.Add(new Command(
-            "deyn",
-            (m, u, c) =>
-            {
-                lock (bot.Duels)
-                {
-                    int index;
-                    if ((index = bot.Duels.FindIndex(d => d.ToUser == u.Name)) != -1)
-                    {
-                        var duel = bot.Duels[index];
-
-                        User from = bot.GetUserOrDefault(duel.FromUser);
-
-                        if (from == null)
-                            return;
-
-                        bot.Whisper(from.Name, $"{u} denied your duel for {duel.Item.GetNumber(duel.Count)}.");
-
-                        bot.Duels.RemoveAt(index);
-                    }
+                    bot.Say(c, $"{u}, to duel someone type !fight <user> <count> [item]");
                 }
             }
             ));
             #endregion
 
-            #region !throw
+            #region trade
+            bot.Commands.Add(new Command(
+            "trade",
+            (m, u, c) =>
+            {
+                string[] S = m.ToLowerInvariant().Split();
+
+                bool worked = true;
+
+                User user;
+
+                List<Tuple<ShopItem, long>> gives = new List<Tuple<ShopItem, long>>();
+                List<Tuple<ShopItem, long>> wants = new List<Tuple<ShopItem, long>>();
+
+                int i = 0;
+
+                if (worked)
+                {
+                    do
+                    {
+                        i++;
+                        ShopItem item;
+                        long count;
+                        if (S.TryGetItemOrPointz(i + 1, out item) && S.TryGetInt(i, false, null, out count))
+                        {
+                            var item2 = gives.FirstOrDefault(x => x.Item1 == item);
+                            if (item2 != null)
+                            {
+                                gives.Remove(item2);
+                                gives.Add(Tuple.Create(item, count + item2.Item2));
+                            }
+                            else
+                            {
+                                gives.Add(Tuple.Create(item, count));
+                            }
+                            i += 2;
+                        }
+                        else
+                        {
+                            worked = false;
+                            break;
+                        }
+                    }
+                    while (S.TryIsString(i, "and"));
+
+                    if (!S.TryIsString(i, "for"))
+                    {
+                        worked = false;
+                    }
+                }
+
+                if (worked)
+                {
+                    do
+                    {
+                        i++;
+                        ShopItem item;
+                        long count;
+                        if (S.TryGetItemOrPointz(i + 1, out item) && S.TryGetInt(i, false, null, out count))
+                        {
+                            var item2 = wants.FirstOrDefault(x => x.Item1 == item);
+                            if (item2 != null)
+                            {
+                                wants.Remove(item2);
+                                wants.Add(Tuple.Create(item, count + item2.Item2));
+                            }
+                            else
+                            {
+                                wants.Add(Tuple.Create(item, count));
+                            }
+                            i += 2;
+                        }
+                        else
+                        {
+                            worked = false;
+                            break;
+                        }
+                    }
+                    while (S.TryIsString(i, "and"));
+                }
+
+                if (i < S.Length - 1)
+                {
+                    worked = false;
+                }
+
+                if (worked)
+                {
+                    lock (bot.Trades)
+                    {
+                        var item = bot.Trades.FirstOrDefault(x => x.User == u.Name);
+                        if (item != null)
+                            bot.Trades.Remove(item);
+                    }
+
+                    var notEnough = gives.Where(x => x.Item1 == null ? x.Item2 > u.Points : x.Item2 > u.ItemCount(x.Item1.Name));
+
+                    if (notEnough.Count() > 0)
+                    {
+                        bot.Whisper(u.Name, "You don't have enought of the following items: " + string.Join(", ", notEnough.Select(x => x.Item1?.Name ?? "pointz")));
+                    }
+                    else
+                    {
+                        lock (bot.Trades)
+                        {
+                            bot.Trades.Add(new Bot.TradeItem { ExpireDate = DateTime.Now + bot.TradeTimeout, User = u.Name, Wants = wants, Gives = gives });
+                            bot.Say(c, $"type \"!trade {u.Name}\" to accept his trade SeemsGood");
+                        }
+                    }
+                }
+                else if (S.TryGetUser(1, bot, out user))
+                {
+                    lock (bot.Trades)
+                    {
+                        var trade = bot.Trades.FirstOrDefault(x => x.User == user.Name);
+                        if (trade != null)
+                        {
+                            if (trade.Gives.Where(x => x.Item1 == null ? x.Item2 > u.Points : x.Item2 > u.ItemCount(x.Item1.Name)).Count() > 0)
+                            {
+                                bot.Say(c, $"{u}, {trade.User} does not have enough items/pointz anymore. The trade was canceled.");
+                                bot.Trades.Remove(trade);
+                            }
+                            else if (trade.Wants.Where(x => x.Item1 == null ? x.Item2 > user.Points : x.Item2 > user.ItemCount(x.Item1.Name)).Count() > 0)
+                            {
+                                bot.Whisper(user.Name, $"You don't have enough items/pointz to accept the trade of {trade.User}.");
+                            }
+                            else
+                            {
+                                bot.Say(c, $"{u} traded with {user} SeemsGood");
+                            }
+                        }
+                    }
+                }
+                else if (S.TryIsString(1, "cancel"))
+                {
+                    lock (bot.Trades)
+                    {
+                        var item = bot.Trades.FirstOrDefault(x => x.User == u.Name);
+                        if (item != null)
+                        {
+                            bot.Trades.Remove(item);
+                            bot.Say(c, $"{u}, trade canceled SeemsGood");
+                        }
+                    }
+                }
+                else
+                {
+                    bot.Say(c, $"{u}, to open a trade type \"!trade <count> <item> for <count> <item>\". You can use \"and\" to trade multiple items.");
+                }
+            }
+            ));
+            #endregion
+
+            #region throw
             Regex throwRegex = new Regex(@"^[^\s]+ \s+ (?<object>[^\s]+) \s+ (at \s+)? (?<user>[^\s]+)", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace);
 
             string[] hitPhrases = new[] {
@@ -679,7 +824,6 @@ namespace twitchbot
             }
             ));
             #endregion
-
 
             // ROLEPLAYER SHIT
             #region shoot
@@ -1030,7 +1174,7 @@ namespace twitchbot
                 ));
             #endregion
 
-            #region !topmessage
+            #region topmessage
             bot.Commands.Add(new Command(
                 "topmessage",
                 (m, u, c) =>
@@ -1048,7 +1192,7 @@ namespace twitchbot
                 ));
             #endregion
 
-            #region !toppointz
+            #region toppointz
             bot.Commands.Add(new Command(
                 "toppointz",
                 (m, u, c) =>
@@ -1059,7 +1203,7 @@ namespace twitchbot
                 ));
             #endregion
 
-            #region !bottompointzs
+            #region bottompointzs
             bot.Commands.Add(new Command(
                 "bottompointz",
                 (m, u, c) =>
@@ -1117,7 +1261,7 @@ namespace twitchbot
                 }));
             #endregion
 
-            #region !calories
+            #region calories
             bot.Commands.Add(new Command(
                 "calories",
                 (m, u, c) =>
@@ -1145,7 +1289,7 @@ namespace twitchbot
                 ));
             #endregion
 
-            #region !topcalories
+            #region topcalories
             bot.Commands.Add(new Command(
             "topcalories",
                 (m, u, c) =>
@@ -1230,6 +1374,8 @@ namespace twitchbot
             #endregion
 
             #region reffle
+            string nextReffleEmote = null;
+
             bot.Commands.Add(new Command(
             "reffle",
             (m, u, c) =>
@@ -1245,7 +1391,7 @@ namespace twitchbot
                     if (item != null && count < 0)
                         return;
 
-                    bot.ForceSay(c, $"A reffle for {item.GetNumber(count)} started. Type {item?.Emote ?? "Kappa"} / to join it. The reffle will end in 45 seconds.");
+                    bot.ForceSay(c, $"A reffle for {item.GetNumber(count)} started. Type {nextReffleEmote ?? item?.Emote ?? "Kappa"} / to join it. The reffle will end in 45 seconds.");
 
                     bot.RaffleActive = true;
                     bot.QueueAction(S.Contains("fast") ? 10 : 45, () =>
@@ -1284,9 +1430,25 @@ namespace twitchbot
                             bot.ForceSay(c, $"Nobody entered the reffle LUL");
                     });
                 }
+
+                nextReffleEmote = null;
             },
             adminOnly: true
             ));
+
+            bot.Commands.Add(new Command(
+            "nextreffle",
+            (m, u, c) =>
+            {
+                string next = m.Substring("!nextreffle ".Length);
+                if (string.IsNullOrWhiteSpace(next))
+                    nextReffleEmote = null;
+                else
+                    nextReffleEmote = next;
+            },
+            adminOnly: true
+            ));
+
 
             bot.Irc.OnChannelMessage += (s, e) =>
             {

@@ -160,6 +160,16 @@ namespace twitchbot
             return false;
         }
 
+        public static bool TryIsString(this string[] items, int index, string value)
+        {
+            if (items.Length > index)
+            {
+                return items[index] == value;
+            }
+
+            return false;
+        }
+
         public static bool True(this object obj)
         {
             return true;
