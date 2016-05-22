@@ -555,6 +555,11 @@ namespace twitchbot
         }
 
 
+        public void FreeLiquid()
+        {
+            Users.Values.Where(x => x.HasItem("vape", 1)).Do(x => x.AddItem("liquid", x.ItemCount("vape") * 5));
+        }
+
         // IO
         private void Load()
         {

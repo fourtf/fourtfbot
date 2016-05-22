@@ -149,7 +149,30 @@ namespace twitchbot
                     return true;
                 }
 
-                if (long.TryParse(s, out i) && ((allowNegative && i != 0) || i >= 1))
+                if (totalAvailable != null && s.EndsWith("%"))
+                {
+                    int percent;
+                    if (int.TryParse(s.Remove(s.Length - 1), out percent))
+                    {
+                        percent = Math.Max(1, Math.Min(100, percent));
+
+                        count = totalAvailable.Value * percent / 100;
+                        if (count == 0)
+                            count = totalAvailable > 0 ? 1 : -1;
+                        return true;
+                    }
+                    else
+                    {
+                        count = 1;
+                        return false;
+                    }
+                }
+                else if (s.EndsWith("k") && long.TryParse(s.Remove(s.Length - 1), out i) && (i = i * 1000).True() && ((allowNegative && i != 0) || i >= 1))
+                {
+                    count = i;
+                    return true;
+                }
+                else if (long.TryParse(s, out i) && ((allowNegative && i != 0) || i >= 1))
                 {
                     count = i;
                     return true;
