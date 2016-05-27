@@ -1,10 +1,12 @@
 ﻿using DynamicExpresso;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -17,8 +19,9 @@ namespace twitchbot
         static Regex singleItem = new Regex(@"^[^\s]+\s+([^\s]+)");
 
         public static string Owner { get; private set; }
+        public static string UrlRoot { get; private set; } = "no url set up";
         public static string RecipesUrl { get; private set; } = "no url set up";
-        public static string RecipesPath { get; private set; } = null;
+        public static string UserUrl { get; private set; } = "no url set up";
 
         static void Main(string[] args)
         {
@@ -35,8 +38,9 @@ namespace twitchbot
 
                 try
                 {
-                    RecipesUrl = File.ReadAllText("recipesurl").Trim();
-                    RecipesPath = File.ReadAllText("recipespath").Trim();
+                    UrlRoot = File.ReadAllText("urlroot").Trim();
+                    RecipesUrl = UrlRoot + "recipes/";
+                    UserUrl = UrlRoot + "user/";
                 }
                 catch { }
 
@@ -53,22 +57,6 @@ namespace twitchbot
                 Console.WriteLine("Couldn't start bot: " + exc.Message);
                 Console.ReadKey();
                 return;
-            }
-
-            if (RecipesPath != null)
-            {
-                try
-                {
-                    using (StreamWriter writer = new StreamWriter(RecipesPath))
-                    {
-                        writer.Write("var recipes = [");
-
-                        ShopItem.Items.Values.Where(item => item.Recipe != null).Do(x => writer.WriteLine($"[\"{(x.CraftCount > 1 ? x.CraftCount + " " : "")}{x.Name}\", \"{string.Join(", ", x.Recipe.Select(y => y.Item1.GetNumber(y.Item2)))}\"],"));
-
-                        writer.Write("]");
-                    }
-                }
-                catch { }
             }
 
 
@@ -137,7 +125,7 @@ namespace twitchbot
                         if (count == 0)
                             bot.Say(c, $"{u} is trying to bet 0 {item.GetPlural()} LUL");
                         else if (currentCount > 0 ? count < 0 || currentCount < count : count > 0 || currentCount > count)
-                            bot.Say(c, $"{u}, you don't have that many {(item == null ? "pointz" : item.GetPlural())} LUL");
+                            bot.Whisper(u.Name, $"You don't have that many {item.GetPlural()}");
                         else if (Util.GetRandom(50))
                         {
                             bot.Say(c, $"{u} lost {item.GetNumber(count)} in roulete and now has {item.GetNumber(currentCount - count)}! LUL");
@@ -202,10 +190,13 @@ namespace twitchbot
                 else
                 {
                     string s = "items (price) in the shop: ";
-                    foreach (var i in ShopItem.Items.Values)
+                    lock (ShopItem.Items)
                     {
-                        if (i.Price > 0)
-                            s += i.Name + " (" + i.Price + "), ";
+                        foreach (var i in ShopItem.Items.Values)
+                        {
+                            if (i.Price > 0)
+                                s += i.Name + " (" + i.Price + "), ";
+                        }
                     }
 
                     bot.Say(c, s.TrimEnd(' ', ','));
@@ -223,10 +214,13 @@ namespace twitchbot
                     bot.Whisper(u.Name, $"{u}, use !buy <item> to buy items from one of the shops :)");
 
                 string s = "a shady dealer shows you the following items (price): ";
-                foreach (var item in ShopItem.Items.Values)
+                lock (ShopItem.Items)
                 {
-                    if (item.Price < 0)
-                        s += item.Name + " (" + item.Price + "), ";
+                    foreach (var item in ShopItem.Items.Values)
+                    {
+                        if (item.Price < 0)
+                            s += item.Name + " (" + item.Price + "), ";
+                    }
                 }
 
                 bot.Say(c, s.TrimEnd(' ', ','));
@@ -247,11 +241,27 @@ namespace twitchbot
 
                 string ans = $"";
 
-                if (user.Inventory != null)
-                    foreach (var item in user.Inventory)
+                lock (user.Inventory)
+                {
+                    if (user.Inventory != null)
                     {
-                        ans += item.Count + " " + item.Name + (item.Count == 1 ? "" : "s") + ", ";
+                        if (user.Inventory.Count > 20)
+                        {
+                            if (u == user)
+                                bot.Say(c, $"{u}, your inventory is too large to send as text FeelsGoodMan {UserUrl + user.Name}");
+                            else
+                                bot.Say(c, $"{user} has too many items to print LUL {UserUrl + user.Name}");
+                            return;
+                        }
+                        else
+                        {
+                            foreach (var item in user.Inventory)
+                            {
+                                ans += item.Count + " " + item.Name + (item.Count == 1 ? "" : "s") + ", ";
+                            }
+                        }
                     }
+                }
 
                 if (u == user)
                     bot.Whisper(u.Name, $"You have {(user.Inventory == null ? "no items FeelsBadMan" : ans.TrimEnd(' ', ','))}");
@@ -273,10 +283,21 @@ namespace twitchbot
                 string ans = $"";
 
                 if (user.Inventory != null)
-                    foreach (var item in user.Inventory)
+                {
+                    lock (user.Inventory)
                     {
-                        ans += item.Count + " " + item.Name + (item.Count == 1 ? "" : "s") + ", ";
+                        if (user.Inventory.Count > 20)
+                        {
+                            bot.Say(c, $"{u}, your inventory is too large to send as text FeelsGoodMan {UserUrl + user.Name}");
+                            return;
+                        }
+
+                        foreach (var item in user.Inventory)
+                        {
+                            ans += item.Count + " " + item.Name + (item.Count == 1 ? "" : "s") + ", ";
+                        }
                     }
+                }
 
                 bot.Say(c, $"{u}, {(u == user ? "you have" : user.Name + " has")} {(user.Inventory == null ? "no items FeelsBadMan" : ans.TrimEnd(' ', ','))}");
             }
@@ -314,7 +335,10 @@ namespace twitchbot
                 {
                     if (!item.Edible)
                     {
-                        bot.Whisper(u.Name, $"{u} is trying to eat {item.GetPlural()} LUL");
+                        if (item.Flags.HasFlag(ShopItemFlags.Liquid))
+                            bot.Say(c, $"{u}, the only liquid you can eat is bacon-liquid OpieOP");
+                        else
+                            bot.Say(c, $"{u} is trying to eat {item.GetPlural()} LUL");
                     }
                     else
                     {
@@ -335,7 +359,7 @@ namespace twitchbot
                 {
                     bot.Say(c, $"{u}, to eat something type \"!eat <count> <item>\" SeemsGood");
                 }
-                
+
             },
                 hasUserCooldown: false
             ));
@@ -358,7 +382,7 @@ namespace twitchbot
                         bot.Say(c, $"{u}, you don't have that many calories FeelsGoodMan");
                     else if (Util.GetRandom(66))
                     {
-                        bot.Say(c, $"{u} lost {calories} calories with his diet and now has {u.Calories - calories} calories! FeelsGoodMan");
+                        bot.Say(c, $"{u} lost {calories} calories with their diet and now has {u.Calories - calories} calories! FeelsGoodMan");
                         u.Calories -= calories;
                     }
                     else
@@ -714,7 +738,7 @@ namespace twitchbot
                         lock (bot.Trades)
                         {
                             bot.Trades.Add(new Bot.TradeItem { ExpireDate = DateTime.Now + bot.TradeTimeout, User = u.Name, Wants = wants, Gives = gives });
-                            bot.Say(c, $"type \"!trade {u.Name}\" to accept his trade SeemsGood");
+                            bot.Say(c, $"type \"!trade {u.Name}\" to accept their trade SeemsGood");
                         }
                     }
                 }
@@ -725,18 +749,45 @@ namespace twitchbot
                         var trade = bot.Trades.FirstOrDefault(x => x.User == user.Name);
                         if (trade != null)
                         {
-                            if (trade.Gives.Where(x => x.Item1 == null ? x.Item2 > u.Points : x.Item2 > u.ItemCount(x.Item1.Name)).Count() > 0)
+                            if (trade.Gives.Any(x => x.Item1 == null ? x.Item2 > u.Points : x.Item2 > u.ItemCount(x.Item1.Name)))
                             {
                                 bot.Say(c, $"{u}, {trade.User} does not have enough items/pointz anymore. The trade was canceled.");
                                 bot.Trades.Remove(trade);
                             }
-                            else if (trade.Wants.Where(x => x.Item1 == null ? x.Item2 > user.Points : x.Item2 > user.ItemCount(x.Item1.Name)).Count() > 0)
+                            else if (trade.Wants.Any(x => x.Item1 == null ? x.Item2 > user.Points : x.Item2 > user.ItemCount(x.Item1.Name)))
                             {
                                 bot.Whisper(user.Name, $"You don't have enough items/pointz to accept the trade of {trade.User}.");
                             }
                             else
                             {
                                 bot.Say(c, $"{u} traded with {user} SeemsGood");
+
+                                foreach (var x in trade.Gives)
+                                {
+                                    if (x.Item1 == null)
+                                    {
+                                        user.Points -= x.Item2;
+                                        u.Points += x.Item2;
+                                    }
+                                    else
+                                    {
+                                        user.RemoveItem(x.Item1.Name, x.Item2);
+                                        u.AddItem(x.Item1.Name, x.Item2);
+                                    }
+                                }
+                                foreach (var x in trade.Wants)
+                                {
+                                    if (x.Item1 == null)
+                                    {
+                                        u.Points -= x.Item2;
+                                        user.Points += x.Item2;
+                                    }
+                                    else
+                                    {
+                                        u.RemoveItem(x.Item1.Name, x.Item2);
+                                        user.AddItem(x.Item1.Name, x.Item2);
+                                    }
+                                }
                             }
                         }
                     }
@@ -766,9 +817,9 @@ namespace twitchbot
 
             string[] hitPhrases = new[] {
                 "but it didn't seem to bother him.",
-                "but he seems to have liked it.",
+                "but they seems to have liked it.",
                 "but you accidentally hit pajbot instead.",
-                "and he gave you a weird look.",
+                "and they gave you a weird look.",
             };
             bot.Commands.Add(new Command(
             "throw",
@@ -797,7 +848,7 @@ namespace twitchbot
                             {
                                 if (item.Edible && Util.GetRandom(75))
                                 {
-                                    bot.ForceSay(c, $"{u}, you threw {item.GetNumber(1)} at {target.Name}. He picked it up, ate it and gained {item.Calories} calories{getEatEmote(item)}");
+                                    bot.ForceSay(c, $"{u}, you threw {item.GetNumber(1)} at {target.Name}. they picked it up, ate it and gained {item.Calories} calories{getEatEmote(item)}");
                                     target.Calories += item.Calories;
                                 }
                                 else
@@ -824,9 +875,9 @@ namespace twitchbot
             // ROLEPLAYER SHIT
             #region shoot
             string[] shotPhrases = new[] {
-                "and he gave you a scared look.",
+                "and they gave you a scared look.",
                 "and it seems to have hurt.",
-                "and blood is dripping down from his 4Head",
+                "and blood is dripping down from their 4Head",
             };
 
             bot.Commands.Add(new Command(
@@ -844,72 +895,87 @@ namespace twitchbot
 
                         ShopItem item;
 
-                        if (ShopItem.Items.TryGetValue(name, out item) || ShopItem.Items.TryGetValue(name.TrimEnd('s'), out item))
+                        lock (ShopItem.Items)
                         {
-                            if (u.HasItem(item.Name, 1))
+                            if (ShopItem.Items.TryGetValue(name, out item) || ShopItem.Items.TryGetValue(name.TrimEnd('s'), out item))
                             {
-                                ShopItem weapon = null;
-                                ShopItem ammo = null;
-
-                                if (item.IsWeapon)
+                                if (u.HasItem(item.Name, 1))
                                 {
-                                    weapon = item;
-                                    foreach (var i in u.Inventory)
+                                    ShopItem weapon = null;
+                                    ShopItem ammo = null;
+
+                                    if (item.IsWeapon)
                                     {
-                                        ShopItem I;
-                                        if (ShopItem.Items.TryGetValue(i.Name, out I))
+                                        weapon = item;
+                                        lock (u.Inventory)
                                         {
-                                            if (I.AmmoFor != null && I.AmmoFor.Contains(weapon.Name))
+                                            foreach (var i in u.Inventory)
                                             {
-                                                ammo = I;
-                                                break;
+                                                ShopItem I;
+                                                lock (ShopItem.Items)
+                                                {
+                                                    if (ShopItem.Items.TryGetValue(i.Name, out I))
+                                                    {
+                                                        if (I.AmmoFor != null && I.AmmoFor.Contains(weapon.Name))
+                                                        {
+                                                            ammo = I;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (ammo == null)
+                                        {
+                                            bot.Whisper(u.Name, $"{u}, you don't have ammo for your {weapon.Name}.");
+                                        }
+                                        else
+                                        {
+                                            bot.Say(c, $"{u} shot {target.Name} with {weapon.GetNumber(1)} " + shotPhrases[Util.GetRandom(0, shotPhrases.Length)]);
+                                            {
+                                                u.RemoveItem(ammo.Name, 1);
                                             }
                                         }
                                     }
-                                    if (ammo == null)
+                                    else if (item.IsAmmo)
                                     {
-                                        bot.Whisper(u.Name, $"{u}, you don't have ammo for your {weapon.Name}.");
+                                        ammo = item;
+                                        lock (u.Inventory)
+                                        {
+                                            foreach (var i in u.Inventory)
+                                            {
+                                                ShopItem I;
+                                                lock (ShopItem.Items)
+                                                {
+                                                    if (ShopItem.Items.TryGetValue(i.Name, out I) && I.WeaponFor != null && I.WeaponFor.Contains(ammo.Name))
+                                                    {
+                                                        weapon = I;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (weapon == null)
+                                        {
+                                            bot.Whisper(u.Name, $"{u}, you don't have a weapon to shoot your {ammo.Name}.");
+                                        }
+                                        else
+                                        {
+                                            bot.Say(c, $"{u} shot {target.Name} with {weapon.GetNumber(1)} " + shotPhrases[Util.GetRandom(0, shotPhrases.Length)]);
+                                            {
+                                                u.RemoveItem(ammo.Name, 1);
+                                            }
+                                        }
                                     }
                                     else
                                     {
-                                        bot.Say(c, $"{u} shot {target.Name} with {weapon.GetNumber(1)} " + shotPhrases[Util.GetRandom(0, shotPhrases.Length)]);
-                                        {
-                                            u.RemoveItem(ammo.Name, 1);
-                                        }
-                                    }
-                                }
-                                else if (item.IsAmmo)
-                                {
-                                    ammo = item;
-                                    foreach (var i in u.Inventory)
-                                    {
-                                        ShopItem I;
-                                        if (ShopItem.Items.TryGetValue(i.Name, out I) && I.WeaponFor != null && I.WeaponFor.Contains(ammo.Name))
-                                        {
-                                            weapon = I;
-                                            break;
-                                        }
-                                    }
-                                    if (weapon == null)
-                                    {
-                                        bot.Whisper(u.Name, $"{u}, you don't have a weapon to shoot your {ammo.Name}.");
-                                    }
-                                    else
-                                    {
-                                        bot.Say(c, $"{u} shot {target.Name} with {weapon.GetNumber(1)} " + shotPhrases[Util.GetRandom(0, shotPhrases.Length)]);
-                                        {
-                                            u.RemoveItem(ammo.Name, 1);
-                                        }
+                                        bot.Say(c, $"{u}, {item.Name} is not a weapon and not ammo.");
                                     }
                                 }
                                 else
                                 {
-                                    bot.Say(c, $"{u}, {item.Name} is not a weapon and not ammo.");
+                                    bot.Whisper(u.Name, $"{u}, you don't have {item.GetNumber(1)}.");
                                 }
-                            }
-                            else
-                            {
-                                bot.Whisper(u.Name, $"{u}, you don't have {item.GetNumber(1)}.");
                             }
                         }
                     }
@@ -925,10 +991,10 @@ namespace twitchbot
             #region whip
             string[] whipPhrases = new[] {
                 "but it didn't seem to bother him gachiGASM",
-                "but he seems to have liked it a lot gachiGASM",
+                "but they seems to have liked it a lot gachiGASM",
                 "and it seems to have hurt gachiGASM",
                 "and you ripped the skin gachiGASM",
-                "and he made a weird sound gachiGASM",
+                "and they made a weird sound gachiGASM",
             };
 
             bot.Commands.Add(new Command(
@@ -964,26 +1030,78 @@ namespace twitchbot
                 "and rips a cloud with the shape of a star.",
                 "and rips a rectangular cloud.",
                 "and rips an entire rainbow.",
-                "and then looks at the fat clouds that he just ripped.",
+                "and then looks at the fat clouds that they just ripped.",
 
                 "and then creates a portal to the matrix.",
                 "and then takes the red pill.",
                 "and then takes the blue pill.",
 
-                "but rips his vape and blows six hot sicky clouds.",
+                "but rips their vape and blows six hot sicky clouds.",
 
                 "and waves at the news reporter.",
                 "and then sits down on a park bench.",
                 "and the cloud looks like a pajaW.",
 
-                "and then thinks about his strent situation.",
+                "and then thinks about their strent situation.",
 
-                "and cures his terminal cancer.",
-                "and makes a \\//\\ sign with his fingers.",
+                "and cures their terminal cancer.",
+                "and makes a \\//\\ sign with their fingers.",
                 "and then licks the vape.",
                 "and gains an IQ.",
 
-                //"but then wakes up from his dream about fat clouds.",
+                "but forgot to turn it on.",
+            };
+
+            string[] tripleVapePhrases = new[]
+            {
+                "and rips three fat clouds.",
+                "and rips three even fatter clouds.",
+                "and rips three clouds with the shape of stars.",
+                "and rips three rectangular clouds.",
+                //"and rips an entire rainbow.",
+                //"and then looks at the fat clouds that they just ripped.",
+
+                //"and then creates a portal to the matrix.",
+                "and then takes three red pills.",
+                "and then takes three blue pills.",
+
+                "but rips their vape and blows 18 hot sicky clouds.",
+
+                "and blows three clouds at the news reporter.",
+                //"and then sits down on a park bench.",
+                "and the three clouds looks like pajaW.",
+
+                //"and then thinks about their strent situation.",
+
+                //"and cures their terminal cancer.",
+                "and makes a \\//\\ sign with their arms.",
+                "and then licks the vape three times.",
+                "and gains three IQ.",
+
+                "but forgot to turn it on.",
+            };
+
+            string[] perfectVapePhrases = new[]
+            {
+                "and rips the perfect cloud.",
+                "and rips the fattest fucking clouds.",
+                "and rips an entire universe.",
+                "and then looks at the fat clouds that they just ripped.",
+
+                "and then creates a portal to their local burger king.",
+                "and then takes a glass of red pills.",
+                "and then takes a glass of blue pills.",
+
+                //"but rips their vape and blows 6 hot sicky clouds.",
+
+                "and takes a selfie with the news reporter.",
+                "and then sits down on their own perfect cloud.",
+
+                "and cures all terminal cancer on earth.",
+                "and makes a \\//\\ sign with their feet.",
+                //"and then licks the vape.",
+                "and get 140 IQ.",
+
                 "but forgot to turn it on.",
             };
 
@@ -991,40 +1109,68 @@ namespace twitchbot
                 "vape",
                 (m, u, c) =>
                 {
-                    if (u.HasItem("vape", 1))
+                    string error = "";
+                    bool triple = false;
+                    bool perfect = false;
+                    try
                     {
-                        List<ShopItem> liquids = u.Inventory.Select(x => ShopItem.GetItem(x.Name)).Where(x => x.Flags.HasFlag(ShopItemFlags.Liquid)).ToList();
-
-                        if (liquids.Count == 0)
+                        if ((perfect = u.HasItem("perfect-vape", 1)) || (triple = u.HasItem("triple-vape", 1)) || u.HasItem("vape", 1))
                         {
-                            bot.Whisper(u.Name, $"You don't have anymore vape liquid. You can \"!buy <count> liquid\". You can also !craft flavored liquids {RecipesUrl}");
+                            error += 1;
+                            List<ShopItem> liquids;
+
+                            lock (u.Inventory)
+                            {
+                                liquids = u.Inventory.Select(x => ShopItem.GetItem(x.Name)).Where(x => x != null && x.Flags.HasFlag(ShopItemFlags.Liquid)).ToList();
+                            }
+                            error += 2;
+
+                            if (liquids.Count == 0)
+                            {
+                                error += 3;
+
+                                bot.Whisper(u.Name, $"You don't have anymore vape liquid. You can \"!buy <count> liquid\" to buy liquid for 5 pointz. You can also !craft flavored liquids {RecipesUrl}");
+                            }
+                            else
+                            {
+                                error += 4;
+                                ShopItem liquid = null;
+                                ShopItem l;
+                                error += 5;
+
+                                string[] S = m.ToLower().Split();
+                                if ((S.Length > 1 && (l = ShopItem.GetItem(S[1] + "-liquid")) != null) || S.TryGetItemOrPointz(1, out l))
+                                {
+                                    if (liquids.Contains(l) && l.Flags.HasFlag(ShopItemFlags.Liquid))
+                                        liquid = l;
+                                }
+                                error += 6;
+
+                                if (liquid == null && u.HasItem("liquid", 1))
+                                    liquid = ShopItem.GetItem("liquid");
+
+                                liquid = liquid ?? liquids[Util.GetRandom(0, liquids.Count)];
+                                error += 7;
+
+                                var phrases = (perfect ? perfectVapePhrases : (triple ? tripleVapePhrases : vapePhrases));
+
+                                if (liquid.Name == "liquid")
+                                    bot.Say(c, $"{u} {(u.HasItem("vaping-dog", 1) ? "vapes with their OhMyDog" : "begins to vape")} {phrases[Util.GetRandom(0, phrases.Length)] } VapeNation");
+                                else
+                                    bot.Say(c, $"{u} {(u.HasItem("vaping-dog", 1) ? $"vapes {liquid.Name} with their OhMyDog" : $"vapes {liquid.Name}")} {phrases[Util.GetRandom(0, phrases.Length)] } VapeNation");
+                                error += 8;
+
+                                u.RemoveItem(liquid.Name, 1);
+                            }
                         }
                         else
                         {
-                            ShopItem liquid = null;
-                            ShopItem l;
-                            string[] S = m.ToLower().Split();
-                            if ((S.Length > 1 && (l = ShopItem.GetItem(S[1] + "-liquid")) != null) || S.TryGetItemOrPointz(1, out l))
-                            {
-                                if (liquids.Contains(l) && l.Flags.HasFlag(ShopItemFlags.Liquid))
-                                    liquid = l;
-                            }
-
-                            if (liquid == null && u.HasItem("liquid", 1))
-                                liquid = ShopItem.GetItem("liquid");
-
-                            liquid = liquid ?? liquids[Util.GetRandom(0, liquids.Count)];
-
-                            if (liquid.Name == "liquid")
-                                bot.Say(c, $"{u} {(u.HasItem("vaping-dog", 1) ? "vapes with his OhMyDog" : "begins to vape")} {vapePhrases[Util.GetRandom(0, vapePhrases.Length)]} VapeNation");
-                            else
-                                bot.Say(c, $"{u} {(u.HasItem("vaping-dog", 1) ? $"vapes {liquid.Name} with his OhMyDog" : $"vapes {liquid.Name}")} {vapePhrases[Util.GetRandom(0, vapePhrases.Length)]} VapeNation");
-                            u.RemoveItem(liquid.Name, 1);
+                            bot.Whisper(u.Name, $"{u}, you need a vape in order to vape. You can buy one in the !shop");
                         }
                     }
-                    else
+                    catch (Exception exc)
                     {
-                        bot.Whisper(u.Name, $"{u}, you need a vape in order to vape. You can buy one in the !shop");
+                        bot.Say(c, $"{error} {exc.Message}");
                     }
                 }
                 ));
@@ -1045,7 +1191,7 @@ namespace twitchbot
                             if (u.Name == "pajlada" || u.Name == "akantor2206")
                                 bot.Say(c, $"I'm not changing my algorithm for you to have a bigger dick size. It's {(float)u.Name.ToUpper().GetHashCode() / int.MaxValue * 10 + 7:0.00}cm get over it.");
                             else
-                                bot.Say(c, $"{u} measures his dick and the tape measure says {(float)u.Name.ToUpper().GetHashCode() / int.MaxValue * 10 + 7:0.00}cm.");
+                                bot.Say(c, $"{u} measures their dick and the tape measure says {(float)u.Name.ToUpper().GetHashCode() / int.MaxValue * 10 + 7:0.00}cm.");
 
                         }
 
@@ -1065,105 +1211,11 @@ namespace twitchbot
             #endregion
 
             #region pet
-            Dictionary<string, string[]> petPhrases = new Dictionary<string, string[]>
+            string[] dickPetPhrases = new[]
             {
-                ["cat"] = new[]
-                {
-                    "and it starts to purr CoolCat",
-                },
-                ["dog"] = new[]
-                {
-                    "and it starts licking their face OhMyDog",
-                },
-                ["vaping-dog"] = new[]
-                {
-                    "and a little cloud is coming out of it's mouth VapeNation",
-                    "and rips some fat clouds. VapeNation",
-
-                    "and it rips some even fatter clouds. VapeNation",
-                    "and it rips a cloud that looks like a pile of poop. VapeNation",
-                    "and it rips a rectangular cloud. VapeNation",
-                    "and it rips an entire rainbow. VapeNation",
-                    "and then looks at the fat clouds that it just ripped. VapeNation",
-
-                    "and then licks the news reporter. VapeNation",
-                    "and then sits down next to the park bench. VapeNation",
-                    "and the cloud looks like a FrankerZ",
-
-                    "and it makes a \\//\\ sign with his paws. VapeNation",
-                },
-                ["vape"] = new[]
-                {
-                    "and wishes it a good night VapeNation",
-                    "and then licks it VapeNation",
-                },
-                ["hamster"] = new[]
-                {
-                    "and it makes a squeaky sound KKona",
-                    "and it makes a squishy sound KKona",
-                },
-                ["negative-cat"] = new[]
-                {
-                    "but it bites them CoolCat",
-                    "and it licks their arm CoolCat",
-                },
-                ["cheeseburger"] = new[]
-                {
-                    "OpieOP"
-                },
-                ["bacon"] = new[]
-                {
-                    "OpieOP"
-                },
-                ["chickennugget"] = new[]
-                {
-                    "OpieOP"
-                },
-                ["pistol"] = new[]
-                {
-                    "haHAA"
-                },
-                ["ak47"] = new[]
-                {
-                    "haHAA"
-                },
-                ["whip"] = new[]
-                {
-                    "gachiGASM"
-                },
-                ["fisting"] = new[]
-                {
-                    "gachiGASM"
-                },
-                ["slap"] = new[]
-                {
-                    "gachiGASM"
-                },
-                ["liquid"] = new[]
-                {
-                    "and think about all the fat vapes that he will rip with it VapeNation"
-                },
-                ["cobra"] = new[]
-                {
-                    "and it bites them WutFace",
-                    "and it pretends to be asleep KKaper",
-                },
-                ["roleplayer"] = new[]
-                {
-                    "but it spits snus at them DansGame",
-                },
-                ["viewbot"] = new[]
-                {
-                    "and it makes a beeping sound MrDestructoid"
-                },
-                ["apple"] = new[]
-                {
-                    "until it's nice and shiny KKona"
-                },
-                ["swiftapple"] = new[]
-                {
-                    "but it's already shiny KKona"
-                },
+                "and the waitress gives them a weird look cmonBruh",
+                "and the waitress joins them gachiGASM",
+                "and the waitress throws them out of the coffeeshop OMGScoots",
             };
 
             bot.Commands.Add(new Command(
@@ -1174,11 +1226,15 @@ namespace twitchbot
 
                     ShopItem item;
                     User user;
-                    if (S.TryGetItemOrPointz(1, out item) && petPhrases.ContainsKey(item.Name))
+                    if (S.TryIsString(1, "dick") || S.TryIsString(1, "cock"))
+                    {
+                        bot.Say(c, $"{u} pets their {S[1]} {dickPetPhrases[Util.GetRandom(0, dickPetPhrases.Length)]}");
+                    }
+                    else if (S.TryGetItemOrPointz(1, out item) && item.PetPhrases != null)
                     {
                         if (u.HasItem(item.Name, 1))
                         {
-                            bot.Say(c, $"{u} pets their {item.Name} {petPhrases[item.Name][Util.GetRandom(0, petPhrases[item.Name].Length)]}");
+                            bot.Say(c, $"{u} pets their {item.Name} {item.PetPhrases[Util.GetRandom(0, item.PetPhrases.Length)]}");
                         }
                         else
                         {
@@ -1270,7 +1326,6 @@ namespace twitchbot
                 ));
             #endregion gachi
 
-
             #region dicklength
             bot.Commands.Add(new Command(
                 "dicklength",
@@ -1335,7 +1390,7 @@ namespace twitchbot
             #endregion
 
             #region top
-            int topCount = 6;
+            int topCount = 3;
 
             bot.Commands.Add(new Command(
                 "top",
@@ -1561,7 +1616,7 @@ namespace twitchbot
 
                     var group = Regex.Match(m, @"^[^\s]+\s+[^\s]+\s+[^\s]+(\s+(?<emote>.+))?$").Groups["emote"];
 
-                    bot.ForceSay(c, $"A reffle for {item.GetNumber(count)} started. Type {(group.Success ? group.Value : item?.Emote ?? "Kappa")} / to join it. The reffle will end in 45 seconds.");
+                    bot.SayMe(c, $"A reffle for {item.GetNumber(count)} started. Type {(group.Success ? group.Value : item?.Emote ?? "Kappa")} / to join it. The reffle will end in 45 seconds.");
 
                     bot.RaffleActive = true;
                     bot.QueueAction(S.Contains("fast") ? 10 : 45, () =>
@@ -1587,21 +1642,21 @@ namespace twitchbot
 
                             if (item == null)
                             {
-                                bot.ForceSay(c, $"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {count} {(winners.Count() > 1 ? "each " : "")}pointz FeelsGoodMan");
+                                bot.SayMe(c, $"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {count} {(winners.Count() > 1 ? "each " : "")}pointz FeelsGoodMan");
                                 winners.Do(winner => winner.Points += count);
                             }
                             else
                             {
-                                bot.ForceSay(c, $"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {item.GetNumber(count)} {(winners.Count() > 1 ? "each " : "")}FeelsGoodMan");
+                                bot.SayMe(c, $"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {item.GetNumber(count)} {(winners.Count() > 1 ? "each " : "")}FeelsGoodMan");
                                 winners.Do(winner => winner.AddItem(item.Name, count));
                             }
                         }
                         else
-                            bot.ForceSay(c, $"Nobody entered the reffle LUL");
+                            bot.SayMe(c, $"Nobody entered the reffle LUL");
                     });
                 }
             },
-            adminOnly: true
+            modOnly: true
             ));
 
             bot.Irc.OnChannelMessage += (s, e) =>
@@ -1634,20 +1689,20 @@ namespace twitchbot
             #endregion
 
             #region eval
-            bot.Commands.Add(new Command(
-                "eval",
-                (m, u, c) =>
-                {
-                    try
-                    {
-                        object o = bot.Interpreter.Eval(m.Substring("!eval ".Length), new Parameter("C", c));
+            //bot.Commands.Add(new Command(
+            //    "eval",
+            //    (m, u, c) =>
+            //    {
+            //        try
+            //        {
+            //            object o = bot.Interpreter.Eval(m.Substring("!eval ".Length), new Parameter("C", c));
 
-                        if (o != null)
-                            bot.Whisper(u.Name, o.ToString());
-                    }
-                    catch (Exception exc) { bot.Say(c, exc.Message); }
-                },
-                adminOnly: true));
+            //            if (o != null)
+            //                bot.Whisper(u.Name, o.ToString());
+            //        }
+            //        catch (Exception exc) { bot.Say(c, exc.Message); }
+            //    },
+            //    adminOnly: true));
 
             bot.Commands.Add(new Command(
                 "print",
@@ -1749,10 +1804,78 @@ namespace twitchbot
                 adminOnly: true));
             #endregion
 
-            ManualResetEvent waitEvent = new ManualResetEvent(false);
-            waitEvent.WaitOne();
+            #region save
+            bot.Commands.Add(new Command(
+                "save",
+                (m, u, c) =>
+                {
+                    bot.Save();
+                },
+                adminOnly: true));
+            #endregion
+
+            #region api
+            bot.Commands.Add(new Command(
+                "api",
+                (m, u, c) =>
+                {
+                    try
+                    {
+                        TcpClient tcpclnt = new TcpClient();
+
+                        tcpclnt.Connect("127.0.0.1", 5200);
+
+                        string str = m.Substring("!api ".Length);
+                        Stream stm = tcpclnt.GetStream();
+
+                        byte[] bytes = Encoding.UTF8.GetBytes(str);
+
+                        stm.Write(bytes, 0, bytes.Length);
+
+                        bytes = new byte[2048];
+                        int k = stm.Read(bytes, 0, 2048);
+
+                        tcpclnt.Close();
+
+                        bot.Say(c, Encoding.UTF8.GetString(bytes, 0, k));
+                    }
+                    catch
+                    {
+
+                    }
+                },
+                adminOnly: true));
+            #endregion
+
+            #region tase
+            bot.Commands.Add(new Command(
+                "tase",
+                (m, u, c) =>
+                {
+                    string[] S = m.ToLower().Split();
+
+                    User user;
+
+                    if (S.TryGetUser(1, bot, out user))
+                    {
+                        if (u.HasItem("taser", 1))
+                        {
+                            bot.SayRaw(c, $"/timeout {user.Name} 3");
+                            bot.Say(c, $"{u} tased {user} {whipPhrases[Util.GetRandom(0, whipPhrases.Length)]}");
+                        };
+                    }
+
+                },
+                adminOnly: true));
+            #endregion
+
+
+
 
             //AppDomain.CurrentDomain.ProcessExit += (s, e) => { bot.Save(); };
+
+            ManualResetEvent waitEvent = new ManualResetEvent(false);
+            waitEvent.WaitOne();
         }
 
         static bool IsValidRepeatMessage(string s)

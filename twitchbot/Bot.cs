@@ -15,6 +15,8 @@ using System.Net;
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using DynamicExpresso;
+using System.Net.Sockets;
+using System.Diagnostics;
 
 namespace twitchbot
 {
@@ -23,8 +25,7 @@ namespace twitchbot
         // Properies
         public IrcClient Irc { get; private set; }
         public Interpreter Interpreter { get; private set; }
-        public Dictionary<string, User> Users = new Dictionary<string, User>();
-
+        public ConcurrentDictionary<string, User> Users = new ConcurrentDictionary<string, User>();
 
         // CHANNEL SETTINGS
         public string Username { get; private set; }
@@ -101,7 +102,7 @@ namespace twitchbot
         public class TradeItem
         {
             public IEnumerable<Tuple<ShopItem, long>> Gives { get; set; }
-            public IEnumerable<Tuple<ShopItem, long>> Wants{ get; set; }
+            public IEnumerable<Tuple<ShopItem, long>> Wants { get; set; }
 
             public DateTime ExpireDate { get; set; }
             public string User { get; set; }
@@ -239,8 +240,9 @@ namespace twitchbot
                     messageTimer.Enabled = messageQueue.Count > 0;
                 }
             };
-        }
 
+            new Thread(Api.ApiServer).Start(this);
+        }
 
         // Connection
         public void Connect()
@@ -324,18 +326,25 @@ namespace twitchbot
         {
             get
             {
-                return messagecount < 11;
+                //return messagecount < 11;
+                return messagecount < 31;
             }
         }
 
         DateTime lastMessage = DateTime.MinValue;
-        TimeSpan messageTimeOffset = TimeSpan.FromSeconds(1.05);
+        //TimeSpan messageTimeOffset = TimeSpan.FromSeconds(1.05);
+        TimeSpan messageTimeOffset = TimeSpan.FromSeconds(0.1);
 
 
         // Say
         public void Say(string channel, string message, bool noTimeout = false)
         {
-            SayRaw(channel, ". " + (message.Length < 394 ? message : message.Remove(393) + "..."), noTimeout);
+            SayRaw(channel, ". " + (message.Length < 360 ? message : message.Remove(357) + "..."), noTimeout);
+        }
+
+        public void SayMe(string channel, string message, bool noTimeout = false)
+        {
+            SayRaw(channel, "/me " + (message.Length < 360 ? message : message.Remove(357) + "..."), noTimeout);
         }
 
         public void ForceSay(string channel, string message)
@@ -369,7 +378,6 @@ namespace twitchbot
             Irc.SendMessage(SendType.Message, "#jtv", $"/w {user} {text}");
             return true;
         }
-
 
         // Users
         public User GetUser(string user)
@@ -414,6 +422,7 @@ namespace twitchbot
 
                 User u = GetOrCreateUser(user);
                 bool isAdmin = u.IsAdmin;
+                bool isMod = u.IsMod;
 
                 u.MessageCount++;
                 u.CharacterCount += message.Length;
@@ -461,17 +470,29 @@ namespace twitchbot
                             //    u.Flags |= UserFlags.NotNew;
                             //}
 
-                            if (!c.HasUserCooldown || isAdmin || !UserCommandCache.Any(t => t.Item2 == u.Name && t.Item3 == c.Name))
+                            if (!c.HasUserCooldown || isAdmin || isMod || !UserCommandCache.Any(t => t.Item2 == u.Name && t.Item3 == c.Name))
                             {
                                 UserCommandCache.Enqueue(Tuple.Create(DateTime.Now + TimeSpan.FromSeconds(15), u.Name, c.Name));
 
-                                if (isAdmin || DateTime.Now - c.LastUsed > c.Cooldown)
+                                if (isAdmin || isMod || DateTime.Now - c.LastUsed > c.Cooldown)
                                 {
-                                    if (!isAdmin)
-                                        c.LastUsed = DateTime.Now;
+                                    //if (!isAdmin && !isMod)
+                                    //    c.LastUsed = DateTime.Now;
 
-                                    if (!c.AdminOnly || isAdmin)
+                                    if (c.AdminOnly)
+                                    {
+                                        if (isAdmin)
+                                            c.Action(message, u, data.Channel);
+                                    }
+                                    else if (c.ModOnly)
+                                    {
+                                        if (isMod)
+                                            c.Action(message, u, data.Channel);
+                                    }
+                                    else
+                                    {
                                         c.Action(message, u, data.Channel);
+                                    }
 
                                     CommandCount.AddOrUpdate(c.Name, 1, (k, v) => v + 1);
                                 }
@@ -554,11 +575,6 @@ namespace twitchbot
             }
         }
 
-
-        public void FreeLiquid()
-        {
-            Users.Values.Where(x => x.HasItem("vape", 1)).Do(x => x.AddItem("liquid", x.ItemCount("vape") * 5));
-        }
 
         // IO
         private void Load()
@@ -747,6 +763,7 @@ namespace twitchbot
             //string json = root.ToString();
             //File.WriteAllText("./db/users.json", json);
 
+            //var w = Stopwatch.StartNew();
             using (Stream filestream = File.OpenWrite("./db/user"))
             {
                 using (Stream stream = new GZipStream(filestream, CompressionMode.Compress))
@@ -767,11 +784,14 @@ namespace twitchbot
 
                         if (u.Inventory != null)
                         {
-                            foreach (InventoryItem item in u.Inventory)
+                            lock (u.Inventory)
                             {
-                                stream.WriteByte(0x10);
-                                stream.WriteString(item.Name);
-                                stream.WriteLong(item.Count);
+                                foreach (InventoryItem item in u.Inventory)
+                                {
+                                    stream.WriteByte(0x10);
+                                    stream.WriteString(item.Name);
+                                    stream.WriteLong(item.Count);
+                                }
                             }
                         }
                     }
@@ -783,6 +803,8 @@ namespace twitchbot
             File.WriteAllLines("./db/stats.txt", CommandCount.Select(k => k.Key + "=" + k.Value));
 
             File.WriteAllLines("./db/evalcommands.txt", EvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
+            //w.Stop();
+            //Say("#pajlada", $"Saved in {w.Elapsed.TotalSeconds:0.000} seconds.");
         }
     }
 }

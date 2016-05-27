@@ -12,17 +12,17 @@ namespace twitchbot
         public long Points { get; set; }
 
         public long GachiGASM { get; set; }
-        
+
         public long MessageCount { get; set; }
         public long CharacterCount { get; set; }
-        
+
         public long Calories { get; set; }
 
         public UserFlags Flags { get; set; }
 
         public bool IsBanned { get { return Flags.HasFlag(UserFlags.Banned); } }
         public bool IsAdmin { get { return Name == Program.Owner || Flags.HasFlag(UserFlags.Admin); } }
-        public bool IsMod { get { return Flags.HasFlag(UserFlags.Mod); } }
+        public bool IsMod { get { return Flags.HasFlag(UserFlags.Mod) || Flags.HasFlag(UserFlags.Admin); } }
         public bool IsBot { get { return Flags.HasFlag(UserFlags.Bot); } }
 
         public List<InventoryItem> Inventory { get; set; } = null;
@@ -32,16 +32,19 @@ namespace twitchbot
             if (Inventory == null)
                 Inventory = new List<InventoryItem>(2);
 
-            for (int i = 0; i < Inventory.Count; i++)
+            lock (Inventory)
             {
-                if (Inventory[i].Name == name)
+                for (int i = 0; i < Inventory.Count; i++)
                 {
-                    Inventory[i] = new InventoryItem(Inventory[i].Name, Inventory[i].Count + count);
-                    return;
+                    if (Inventory[i].Name == name)
+                    {
+                        Inventory[i] = new InventoryItem(Inventory[i].Name, Inventory[i].Count + count);
+                        return;
+                    }
                 }
-            }
 
-            Inventory.Add(new InventoryItem(name, count));
+                Inventory.Add(new InventoryItem(name, count));
+            }
         }
 
         public bool HasItem(string name, long count)
@@ -49,10 +52,13 @@ namespace twitchbot
             if (Inventory == null)
                 return false;
 
-            foreach (var item in Inventory)
+            lock (Inventory)
             {
-                if (item.Name == name)
-                    return item.Count >= count;
+                foreach (var item in Inventory)
+                {
+                    if (item.Name == name)
+                        return item.Count >= count;
+                }
             }
 
             return false;
@@ -63,20 +69,23 @@ namespace twitchbot
             if (Inventory == null)
                 return;
 
-            for (int i = 0; i < Inventory.Count; i++)
+            lock (Inventory)
             {
-                var item = Inventory[i];
-
-                if (item.Name == name)
+                for (int i = 0; i < Inventory.Count; i++)
                 {
-                    item.Count = Math.Max(0, item.Count - count);
-                    if (item.Count == 0)
+                    var item = Inventory[i];
+
+                    if (item.Name == name)
                     {
-                        Inventory.Remove(item);
-                        if (Inventory.Count == 0)
-                            Inventory = null;
+                        item.Count = Math.Max(0, item.Count - count);
+                        if (item.Count == 0)
+                        {
+                            Inventory.Remove(item);
+                            if (Inventory.Count == 0)
+                                Inventory = null;
+                        }
+                        return;
                     }
-                    return;
                 }
             }
         }
