@@ -145,9 +145,22 @@ publish/
 # NuGet Packages
 *.nupkg
 # The packages folder can be ignored because of Package Restore
-**/packages/*
+#packages/
+packages/**/*.xml
+packages/**/netstandard1.3
+packages/**/port*
+packages/Newtonsoft.Json.8.0.3/lib/*
+!packages/Newtonsoft.Json.8.0.3/lib/net45/
+packages/Nito.AsyncEx.3.0.1/lib/*
+!packages/Nito.AsyncEx.3.0.1/lib/net45/
+packages/RestSharp.105.2.3/lib/*
+!packages/RestSharp.105.2.3/lib/net45/
+packages/WebSocket4Net.0.14.1/lib/*
+!packages/WebSocket4Net.0.14.1/lib/net45/
+#!packages/*/lib
+#!packages/
 # except build/, which is used as an MSBuild target.
-!**/packages/build/
+#!**/packages/build/
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/packages/repositories.config
 

@@ -1912,8 +1912,6 @@ namespace twitchbot
             #endregion
 
 
-
-
             //AppDomain.CurrentDomain.ProcessExit += (s, e) => { bot.Save(); };
 
             ManualResetEvent waitEvent = new ManualResetEvent(false);
