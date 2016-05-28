@@ -8,7 +8,7 @@ Use Visual Studio 2015 to build fourtfbot.
 	apt-get install mono-complete
 	apt-get install modo-devel
 	git clone https://github.com/fourtf/fourtfbot.git
-	
+	cd fourtfbot
 	bash linuxbuild.sh
 
 There should now be a folder called build that contains all the application
