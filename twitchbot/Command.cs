@@ -10,7 +10,7 @@ namespace twitchbot
     {
         public string Name { get; private set; }
 
-        public Action<string, User, string> Action { get; private set; }
+        public Action<string, User, Channel> Action { get; private set; }
         public bool AdminOnly { get; set; } = false;
         public bool ModOnly { get; set; } = false;
 
@@ -20,7 +20,7 @@ namespace twitchbot
         public bool HasUserCooldown { get; set; }
         public DateTime LastUsed { get; set; } = DateTime.MinValue;
 
-        public Command(string name, Action<string, User, string> action, bool adminOnly = false, bool modOnly = false, bool hasUserCooldown = true, TimeSpan? cooldown = null, bool allowOtherCommands = false)
+        public Command(string name, Action<string, User, Channel> action, bool adminOnly = false, bool modOnly = false, bool hasUserCooldown = true, TimeSpan? cooldown = null, bool allowOtherCommands = false)
         {
             Name = name;
             Action = action;

@@ -19,9 +19,9 @@ namespace twitchbot
         static Cache itemCache = new Cache();
         public static TimeSpan CacheCooldown = TimeSpan.FromMinutes(1);
 
-        public static void ApiServer(object parameter)
+        public static void StartApiServer(object parameter)
         {
-            Bot bot = (Bot)parameter;
+            Channel c = (Channel)parameter;
 
             IPAddress address = IPAddress.Parse("127.0.0.1");
             TcpListener listener = new TcpListener(address, 5200);
@@ -47,7 +47,7 @@ namespace twitchbot
                     {
                         #region
                         User user;
-                        if (S.TryGetUser(1, bot, out user))
+                        if (S.TryGetUser(1, c, out user))
                         {
                             appendDataObject(builder, success = true,
                                 () =>
@@ -121,7 +121,7 @@ namespace twitchbot
                                     appendDataArray(builder, success = true, () =>
                                     {
                                         bool first = true;
-                                        foreach (var x in bot.Users.Values.OrderBy(user => user.Points * -1).Take((int)topCount).Where(user => user.Points != 0))
+                                        foreach (var x in c.Users.Values.OrderBy(user => user.Points * -1).Take((int)topCount).Where(user => user.Points != 0))
                                         {
                                             appendPair(builder, x.Name, x.Points, first);
                                             first = false;
@@ -134,7 +134,7 @@ namespace twitchbot
                                     appendDataArray(builder, success = true, () =>
                                     {
                                         bool first = true;
-                                        foreach (var x in bot.Users.Values.OrderBy(user => user.ItemCount(item.Name) * -1).Take((int)topCount).Where(user => user.ItemCount(item.Name) != 0))
+                                        foreach (var x in c.Users.Values.OrderBy(user => user.ItemCount(item.Name) * -1).Take((int)topCount).Where(user => user.ItemCount(item.Name) != 0))
                                         {
                                             appendPair(builder, x.Name, x.ItemCount(item.Name), first);
                                             first = false;

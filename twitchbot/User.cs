@@ -9,6 +9,8 @@ namespace twitchbot
     public class User
     {
         public string Name { get; set; }
+        //public string ID { get; set; }
+
         public long Points { get; set; }
 
         public long GachiGASM { get; set; }

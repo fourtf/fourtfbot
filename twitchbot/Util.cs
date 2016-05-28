@@ -96,13 +96,13 @@ namespace twitchbot
                 Console.ForegroundColor = defaultColor;
         }
 
-        public static bool TryGetUser(this string[] items, int index, Bot bot, out User user)
+        public static bool TryGetUser(this string[] items, int index, Channel channel, out User user)
         {
             if (items.Length > index)
             {
                 string s = items[index];
 
-                user = bot.GetUserOrDefault(s);
+                user = channel.GetUserOrDefault(s);
                 return user != null;
             }
 
