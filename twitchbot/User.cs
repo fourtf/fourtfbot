@@ -9,7 +9,7 @@ namespace twitchbot
     public class User
     {
         public string Name { get; set; }
-        //public string ID { get; set; }
+        public string ID { get; set; }
 
         public long Points { get; set; }
 
@@ -23,7 +23,7 @@ namespace twitchbot
         public UserFlags Flags { get; set; }
 
         public bool IsBanned { get { return Flags.HasFlag(UserFlags.Banned); } }
-        public bool IsAdmin { get { return Name == Program.Owner || Flags.HasFlag(UserFlags.Admin); } }
+        public bool IsAdmin { get { return Flags.HasFlag(UserFlags.Admin); } }
         public bool IsMod { get { return Flags.HasFlag(UserFlags.Mod) || Flags.HasFlag(UserFlags.Admin); } }
         public bool IsBot { get { return Flags.HasFlag(UserFlags.Bot); } }
 

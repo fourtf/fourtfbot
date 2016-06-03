@@ -4,15 +4,32 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Discord;
+using System.IO;
+using System.IO.Compression;
 
-namespace twitchbot.Discord
+namespace twitchbot.Discord2
 {
     public class DiscordChannel : Channel
     {
-        public DiscordChannel(Bot bot)
+        public DiscordClient Client { get; private set; }
+        public DiscordChannel Channel { get; private set; }
+
+        System.Timers.Timer userUpdateTimer = new System.Timers.Timer(5 * 1000 * 60);
+
+        public ulong ID { get; private set; }
+
+        public DiscordChannel(Bot bot, DiscordClient client, ulong id)
             : base(bot)
         {
+            ID = id;
+            Client = client;
 
+            userUpdateTimer.Elapsed += (s, e) =>
+            {
+                Client.GetChannel(id).Process(c => c.Users.Do(u => GetOrCreateUser(u.Id.ToString(), u.Name).Points += 10));
+            };
+
+            userUpdateTimer.Start();
         }
 
         public override ChannelType Type
@@ -23,54 +40,42 @@ namespace twitchbot.Discord
             }
         }
 
+        public override string UserSavePath
+        {
+            get
+            {
+                return "./db/discord-" + ID;
+            }
+        }
+
         public override void Connect()
         {
-            throw new NotImplementedException();
+            
         }
 
         public override void Disconnect()
         {
-            throw new NotImplementedException();
-        }
-
-        public override void Load()
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void Save()
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void Say(string message)
-        {
-            throw new NotImplementedException();
+            
         }
 
         public override void Say(string message, bool slashMe, bool force)
         {
-            throw new NotImplementedException();
-        }
-
-        public override void SayMe(string message)
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void SayRaw(string message)
-        {
-            throw new NotImplementedException();
+            Client.GetChannel(ID)?.SendMessage(message);
         }
 
         public override void SayRaw(string message, bool force)
         {
-            throw new NotImplementedException();
+            Client.GetChannel(ID)?.SendMessage(message);
         }
 
         public override void TryWhisperUser(User u, string message)
         {
-            throw new NotImplementedException();
+            Client.GetChannel(ID)?.SendMessage(u.Name + ", " + message);
+        }
+
+        public override bool IsOwner(User user)
+        {
+            return Bot.DiscordOwner == user.ID;
         }
     }
 }

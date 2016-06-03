@@ -121,7 +121,7 @@ namespace twitchbot
                                     appendDataArray(builder, success = true, () =>
                                     {
                                         bool first = true;
-                                        foreach (var x in c.Users.Values.OrderBy(user => user.Points * -1).Take((int)topCount).Where(user => user.Points != 0))
+                                        foreach (var x in c.UsersByName.Values.OrderBy(user => user.Points * -1).Take((int)topCount).Where(user => user.Points != 0))
                                         {
                                             appendPair(builder, x.Name, x.Points, first);
                                             first = false;
@@ -134,7 +134,7 @@ namespace twitchbot
                                     appendDataArray(builder, success = true, () =>
                                     {
                                         bool first = true;
-                                        foreach (var x in c.Users.Values.OrderBy(user => user.ItemCount(item.Name) * -1).Take((int)topCount).Where(user => user.ItemCount(item.Name) != 0))
+                                        foreach (var x in c.UsersByName.Values.OrderBy(user => user.ItemCount(item.Name) * -1).Take((int)topCount).Where(user => user.ItemCount(item.Name) != 0))
                                         {
                                             appendPair(builder, x.Name, x.ItemCount(item.Name), first);
                                             first = false;
@@ -176,6 +176,39 @@ namespace twitchbot
                             }
                             success = true;
                             #endregion
+                        }
+                        else if (S.TryIsString(1, "flag"))
+                        {
+                            UserFlags flags;
+                            if (S.Length > 2)
+                            {
+                                if (Enum.TryParse(S[2], true, out flags))
+                                {
+                                    #region
+                                    if (itemsCache == null)
+                                    {
+                                        appendDataArray(builder, success = true, () =>
+                                        {
+                                            bool first = true;
+                                            foreach (var u in c.UsersByID.Values.Where(x => (x.Flags & flags) == flags))
+                                            {
+                                                if (!first)
+                                                    builder.Append(',');
+                                                appendString(builder, u.Name);
+                                                first = false;
+                                            }
+                                        });
+                                        cache = itemsCache = builder.ToString();
+
+                                    }
+                                    else
+                                    {
+                                        cache = itemsCache;
+                                    }
+                                    success = true;
+                                    #endregion
+                                }
+                            }
                         }
                     }
 

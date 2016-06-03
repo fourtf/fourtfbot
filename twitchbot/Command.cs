@@ -10,9 +10,10 @@ namespace twitchbot
     {
         public string Name { get; private set; }
 
-        public Action<string, User, Channel> Action { get; private set; }
+        public Func<string, User, Channel, bool> Action { get; private set; }
         public bool AdminOnly { get; set; } = false;
         public bool ModOnly { get; set; } = false;
+        public bool OwnerOnly { get; set; } = false;
 
         public bool AllowOtherCommands { get; private set; }
 
@@ -20,14 +21,20 @@ namespace twitchbot
         public bool HasUserCooldown { get; set; }
         public DateTime LastUsed { get; set; } = DateTime.MinValue;
 
-        public Command(string name, Action<string, User, Channel> action, bool adminOnly = false, bool modOnly = false, bool hasUserCooldown = true, TimeSpan? cooldown = null, bool allowOtherCommands = false)
+        public Command(string name, Action<string, User, Channel> action, bool adminOnly = false, bool modOnly = false, bool ownerOnly = false, bool hasUserCooldown = true, TimeSpan? cooldown = null, bool allowOtherCommands = false)
+            : this(name, (m, u, c) => { action(m, u, c); return true; }, adminOnly, modOnly, ownerOnly, hasUserCooldown, cooldown)
+        {
+
+        }
+
+        public Command(string name, Func<string, User, Channel, bool> action, bool adminOnly = false, bool modOnly = false, bool ownerOnly = false, bool hasUserCooldown = true, TimeSpan? cooldown = null, bool allowOtherCommands = false)
         {
             Name = name;
             Action = action;
             AdminOnly = adminOnly;
             ModOnly = modOnly;
+            OwnerOnly = ownerOnly;
             Cooldown = cooldown ?? new TimeSpan(0, 0, 2);
-            AllowOtherCommands = allowOtherCommands;
             HasUserCooldown = hasUserCooldown;
         }
     }

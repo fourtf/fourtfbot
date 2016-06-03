@@ -102,7 +102,7 @@ namespace twitchbot
             {
                 string s = items[index];
 
-                user = channel.GetUserOrDefault(s);
+                user = channel.GetUserOrDefaultByName(s);
                 return user != null;
             }
 
@@ -222,6 +222,15 @@ namespace twitchbot
         public static string[] Split(this string value)
         {
             return value.Split(ws, StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        public static bool IsLinux
+        {
+            get
+            {
+                int p = (int)Environment.OSVersion.Platform;
+                return (p == 4) || (p == 6) || (p == 128);
+            }
         }
     }
 }

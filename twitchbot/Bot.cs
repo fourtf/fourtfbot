@@ -18,6 +18,8 @@ using DynamicExpresso;
 using System.Net.Sockets;
 using System.Diagnostics;
 using twitchbot.Twitch;
+using twitchbot.Discord2;
+using Discord;
 
 namespace twitchbot
 {
@@ -27,24 +29,26 @@ namespace twitchbot
 
         // Properies
         public IrcClient TwitchIrc { get; private set; }
+        public DiscordClient DiscordClient { get; private set; }
         public Interpreter Interpreter { get; private set; }
 
         // CHANNEL SETTINGS
-        public string Username { get; private set; }
-        public string OAuthPassword { get; private set; }
-        public string Admin { get; set; }
+        public string TwitchOwner { get; set; } = null;
+        public string DiscordOwner { get; set; } = null;
 
         bool connected = false;
 
         public bool EnableWhispers { get; set; } = false;
 
+        public DateTime StartTime { get; private set; }
+
+        System.Timers.Timer saveTimer = new System.Timers.Timer(5 * 1000 * 60);
 
         // COMMANDS
         public List<Command> Commands { get; private set; } = new List<Command>();
         public Dictionary<string, string> CommandAliases { get; private set; } = new Dictionary<string, string>();
 
         public ConcurrentDictionary<string, long> CommandCount { get; private set; } = new ConcurrentDictionary<string, long>();
-
 
 
         // GACHI SONGS
@@ -75,13 +79,12 @@ namespace twitchbot
             }
         }
 
+        public string TwitchBotName { get; private set; }
 
         // ctor
-        public Bot(string username, string oauth)
+        public Bot()
         {
-
-            Username = username;
-            OAuthPassword = oauth;
+            StartTime = DateTime.Now;
 
             Load();
 
@@ -124,10 +127,41 @@ namespace twitchbot
             {
                 twitchChannelMessage(e.Data);
             };
+
+            saveTimer.Elapsed += (s, e) =>
+            {
+                Save();
+            };
+            saveTimer.Start();
+        }
+
+        public void ConnectDiscord(string email, string pass)
+        {
+            DiscordClient = new DiscordClient();
+            DiscordClient.Connect(email, pass);
+            foreach (var c in DiscordClient.PrivateChannels)
+            {
+                AddChannel(ChannelType.Discord, c.Id.ToString());
+            }
+            DiscordClient.MessageReceived += (s, e) =>
+            {
+                lock (discordChannels)
+                {
+                    foreach (var c in discordChannels)
+                    {
+                        if (c.ID == e.Channel.Id)
+                        {
+                            c.TriggerMessageReceived(new MessageEventArgs(c, c.GetOrCreateUser(e.User.Id.ToString(), e.User.Name.ToLower()), e.User.Id.ToString(), e.Message.Text));
+                            break;
+                        }
+                    }
+                }
+            };
         }
 
         List<Channel> channels = new List<Channel>();
         List<TwitchChannel> twitchChannels = new List<TwitchChannel>();
+        List<DiscordChannel> discordChannels = new List<DiscordChannel>();
 
         public IEnumerable<Channel> Channels
         {
@@ -159,7 +193,26 @@ namespace twitchbot
                             twitchChannels.Add(c);
                         c.Connect();
                         c.Load();
+                        c.Say("running now pajaHop");
                         return c;
+                    }
+                case ChannelType.Discord:
+                    {
+                        ulong id;
+                        if (ulong.TryParse(channel, out id))
+                        {
+                            var c = new DiscordChannel(this, DiscordClient, id);
+                            c.MessageReceived += onChannelMessageReceived;
+                            lock (channels)
+                                channels.Add(c);
+                            lock (discordChannels)
+                                discordChannels.Add(c);
+                            c.Connect();
+                            c.Load();
+                            return c;
+                        }
+
+                        return null;
                     }
                 default:
                     return null;
@@ -179,15 +232,111 @@ namespace twitchbot
         private void onChannelMessageReceived(object sender, MessageEventArgs e)
         {
             ChannelMessageReceived?.Invoke(this, e);
+
+            var message = e.Message;
+            var C = e.Channel;
+            var u = e.User;
+
+            bool isAdmin = C.IsOwner(u) || u.IsAdmin;
+            bool isMod = u.IsMod;
+
+            u.MessageCount++;
+            u.CharacterCount += message.Length;
+
+            if (message.Contains("forsenGASM"))
+            {
+                int index = -1;
+                while ((index = message.IndexOf("forsenGASM", index + 1)) != -1)
+                    u.GachiGASM++;
+            }
+
+            if (message.Contains("gachiGASM"))
+            {
+                int index = -1;
+                while ((index = message.IndexOf("gachiGASM", index + 1)) != -1)
+                    u.GachiGASM++;
+            }
+
+            if (!u.IsBanned && message.Length > 2)
+                if (message[0] == '!')
+                {
+                    string _command = null;
+
+                    int index;
+                    if ((index = message.IndexOf(' ')) != -1)
+                        _command = message.Substring(1, index - 1);
+
+                    _command = _command ?? message.Substring(1);
+
+                    string aliasFor;
+                    CommandAliases.TryGetValue(_command, out aliasFor);
+
+                    EvalCommand evalCommand = null;
+                    lock (EvalCommands)
+                    {
+                        evalCommand = EvalCommands.FirstOrDefault(x => x.Name == _command) ?? EvalCommands.FirstOrDefault(x => x.Name == aliasFor);
+                    }
+
+                    (Commands.FirstOrDefault(x => x.Name == _command) ?? Commands.FirstOrDefault(x => x.Name == aliasFor) ?? evalCommand).Process(c =>
+                    {
+                        if (!c.HasUserCooldown || isAdmin || isMod || !C.UserCommandCache.Any(t => t.Item2 == u.Name && t.Item3 == c.Name))
+                        {
+                            if (isAdmin || isMod || DateTime.Now - c.LastUsed > c.Cooldown)
+                            {
+                                //if (!isAdmin && !isMod)
+                                //    c.LastUsed = DateTime.Now;
+
+                                bool cooldown = false;
+
+                                if (c.OwnerOnly)
+                                {
+                                    if (C.IsOwner(u))
+                                    {
+                                        c.Action(message, u, C);
+                                        File.AppendAllText("modlogs", $"{DateTime.Now:yyyy-MM-dd hh:mm:ss} {u.Name} {message}\n");
+                                    }
+                                }
+                                else if (c.AdminOnly)
+                                {
+                                    if (isAdmin)
+                                    {
+                                        c.Action(message, u, C);
+                                        File.AppendAllText("modlogs", $"{DateTime.Now:yyyy-MM-dd hh:mm:ss} {u.Name} {message}\n");
+                                    }
+                                }
+                                else if (c.ModOnly)
+                                {
+                                    if (isMod || isAdmin)
+                                    {
+                                        c.Action(message, u, C);
+                                        File.AppendAllText("modlogs", $"{DateTime.Now:yyyy-MM-dd hh:mm:ss} {u.Name} {message}\n");
+                                    }
+                                }
+                                else
+                                {
+                                    if (!c.Action(message, u, C))
+                                        cooldown = true;
+                                }
+
+                                if (cooldown)
+                                    C.UserCommandCache.Enqueue(Tuple.Create(DateTime.Now + TimeSpan.FromSeconds(12), u.Name, c.Name));
+
+                                CommandCount.AddOrUpdate(c.Name, 1, (k, v) => v + 1);
+                            }
+                        }
+                    });
+                }
         }
 
 
         // Connection
-        public void Connect()
+        public void ConnectTwitch(string username, string oauthPassword)
         {
             if (!connected)
             {
                 connected = true;
+
+                TwitchBotName = username;
 
                 try
                 {
@@ -201,7 +350,7 @@ namespace twitchbot
 
                 try
                 {
-                    TwitchIrc.Login(Username, Username, 0, Username, "oauth:" + OAuthPassword);
+                    TwitchIrc.Login(username, username, 0, username, "oauth:" + oauthPassword);
 
                     TwitchIrc.WriteLine("CAP REQ :twitch.tv/commands");
 
@@ -243,7 +392,6 @@ namespace twitchbot
         }
 
 
-
         // Users
         public long GetCommandUses(string name)
         {
@@ -274,86 +422,9 @@ namespace twitchbot
 
                 string message = data.Message;
 
-                User u = C.GetOrCreateUser(user);
-                bool isAdmin = u.IsAdmin;
-                bool isMod = u.IsMod;
-
-                u.MessageCount++;
-                u.CharacterCount += message.Length;
+                User u = C.GetOrCreateUser(user, user);
 
                 C.TriggerMessageReceived(new MessageEventArgs(C, u, u.Name, message));
-
-                if (message.Contains("forsenGASM"))
-                {
-                    int index = -1;
-                    while ((index = message.IndexOf("forsenGASM", index + 1)) != -1)
-                        u.GachiGASM++;
-                }
-
-                if (message.Contains("gachiGASM"))
-                {
-                    int index = -1;
-                    while ((index = message.IndexOf("gachiGASM", index + 1)) != -1)
-                        u.GachiGASM++;
-                }
-
-                if (!u.IsBanned && message.Length > 2)
-                    if (message[0] == '!')
-                    {
-                        string _command = null;
-
-                        int index;
-                        if ((index = message.IndexOf(' ')) != -1)
-                            _command = message.Substring(1, index - 1);
-
-                        _command = _command ?? message.Substring(1);
-
-                        string aliasFor;
-                        CommandAliases.TryGetValue(_command, out aliasFor);
-
-                        EvalCommand evalCommand = null;
-                        lock (EvalCommands)
-                        {
-                            evalCommand = EvalCommands.FirstOrDefault(x => x.Name == _command) ?? EvalCommands.FirstOrDefault(x => x.Name == aliasFor);
-                        }
-
-                        (Commands.FirstOrDefault(x => x.Name == _command) ?? Commands.FirstOrDefault(x => x.Name == aliasFor) ?? evalCommand).Process(c =>
-                        {
-                            //if ((u.Flags & UserFlags.NotNew) == UserFlags.None)
-                            //{
-                            //    Whisper(u.Name, $"Hey {u.Name}! ")
-                            //    u.Flags |= UserFlags.NotNew;
-                            //}
-
-                            if (!c.HasUserCooldown || isAdmin || isMod || !C.UserCommandCache.Any(t => t.Item2 == u.Name && t.Item3 == c.Name))
-                            {
-                                C.UserCommandCache.Enqueue(Tuple.Create(DateTime.Now + TimeSpan.FromSeconds(15), u.Name, c.Name));
-
-                                if (isAdmin || isMod || DateTime.Now - c.LastUsed > c.Cooldown)
-                                {
-                                    //if (!isAdmin && !isMod)
-                                    //    c.LastUsed = DateTime.Now;
-
-                                    if (c.AdminOnly)
-                                    {
-                                        if (isAdmin)
-                                            c.Action(message, u, C);
-                                    }
-                                    else if (c.ModOnly)
-                                    {
-                                        if (isMod || isAdmin)
-                                            c.Action(message, u, C);
-                                    }
-                                    else
-                                    {
-                                        c.Action(message, u, C);
-                                    }
-
-                                    CommandCount.AddOrUpdate(c.Name, 1, (k, v) => v + 1);
-                                }
-                            }
-                        });
-                    }
             }
             catch (Exception exc)
             {
@@ -507,5 +578,14 @@ namespace twitchbot
             //w.Stop();
             //Say("#pajlada", $"Saved in {w.Elapsed.TotalSeconds:0.000} seconds.");
         }
+
+        //public void Restart()
+        //{
+        //    if (Util.IsLinux)
+        //    {
+        //        Save();
+        //        Process.Start("bash", $"-c 'service fourtfbot restart'");
+        //    }
+        //}
     }
 }
