@@ -6,13 +6,14 @@ using System.Threading.Tasks;
 using Discord;
 using System.IO;
 using System.IO.Compression;
+using System.Collections.Concurrent;
 
 namespace twitchbot.Discord2
 {
     public class DiscordChannel : Channel
     {
         public DiscordClient Client { get; private set; }
-        public DiscordChannel Channel { get; private set; }
+        public Discord.Channel Channel { get; private set; }
 
         System.Timers.Timer userUpdateTimer = new System.Timers.Timer(5 * 1000 * 60);
 
@@ -40,11 +41,27 @@ namespace twitchbot.Discord2
             }
         }
 
-        public override string UserSavePath
+        public override ConcurrentDictionary<string, User> UsersByName
         {
             get
             {
-                return "./db/discord-" + ID;
+                return Bot.DiscordUsersByName;
+            }
+        }
+
+        public override ConcurrentDictionary<string, User> UsersByID
+        {
+            get
+            {
+                return Bot.DiscordUsersByID;
+            }
+        }
+
+        public override string LongName
+        {
+            get
+            {
+                return $"the channel \"{Channel.Name}\"";
             }
         }
 

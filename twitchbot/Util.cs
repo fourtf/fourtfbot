@@ -219,7 +219,7 @@ namespace twitchbot
 
         static char[] ws = new char[] { ' ' };
 
-        public static string[] Split(this string value)
+        public static string[] SplitWords(this string value)
         {
             return value.Split(ws, StringSplitOptions.RemoveEmptyEntries);
         }

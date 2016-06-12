@@ -17,7 +17,8 @@ namespace twitchbot
         static string recipesCache = null;
         static string itemsCache = null;
         static Cache itemCache = new Cache();
-        public static TimeSpan CacheCooldown = TimeSpan.FromMinutes(1);
+        public static TimeSpan CacheCooldown = TimeSpan.FromMinutes(0.1);
+        public static TimeSpan CacheCooldownTop = TimeSpan.FromMinutes(1);
 
         public static void StartApiServer(object parameter)
         {
@@ -40,6 +41,9 @@ namespace twitchbot
 
                     StringBuilder builder = new StringBuilder(1024);
                     string cache = null;
+                    //builder.Append("{ timestamp: ");
+                    //builder.Append((long)(new TimeSpan(DateTime.UtcNow.Ticks) - new TimeSpan(new DateTime(1970, 1, 1).Ticks)).TotalMilliseconds);
+                    //builder.Append(DateTime.UtcNow.ToString("yyyy-MM-ddTHH\\:mm\\:ss.fffffffzzz"));
                     builder.Append("{ success: ");
                     bool success = false;
 
@@ -127,7 +131,7 @@ namespace twitchbot
                                             first = false;
                                         }
                                     });
-                                    itemCache.SetCache("pointz", cache = builder.ToString());
+                                    itemCache.SetCache("pointz", cache = builder.ToString(), CacheCooldownTop);
                                 }
                                 else
                                 {
@@ -140,7 +144,7 @@ namespace twitchbot
                                             first = false;
                                         }
                                     });
-                                    itemCache.SetCache(item.Name, cache = builder.ToString());
+                                    itemCache.SetCache(item.Name, cache = builder.ToString(), CacheCooldownTop);
                                 }
                             }
                         }
@@ -346,9 +350,9 @@ namespace twitchbot
             return false;
         }
 
-        public static void SetCache(this Cache cache, string key, string value)
+        public static void SetCache(this Cache cache, string key, string value, TimeSpan? cooldown = null)
         {
-            cache[key] = Tuple.Create(DateTime.Now + Api.CacheCooldown, value);
+            cache[key] = Tuple.Create(DateTime.Now + (cooldown ?? Api.CacheCooldown), value);
         }
     }
 }

@@ -8,6 +8,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace twitchbot.Twitch
@@ -45,11 +46,27 @@ namespace twitchbot.Twitch
         System.Timers.Timer messageTimer;
         public TimeSpan MessageTimeout { get; set; } = TimeSpan.FromSeconds(7);
 
-        public override string UserSavePath
+        public override ConcurrentDictionary<string, User> UsersByName
         {
             get
             {
-                return "./db/twitch-" + ChannelName;
+                return Bot.TwitchUsersByName;
+            }
+        }
+
+        public override ConcurrentDictionary<string, User> UsersByID
+        {
+            get
+            {
+                return Bot.TwitchUsersByID;
+            }
+        }
+
+        public override string LongName
+        {
+            get
+            {
+                return ChannelName + "'s chat";
             }
         }
 
@@ -115,6 +132,12 @@ namespace twitchbot.Twitch
         DateTime lastMessage = DateTime.MinValue;
         public override void SayRaw(string message, bool force)
         {
+            if (IsForsens)
+            {
+                message = Regex.Replace(message, @"(https?://[^\s\.]+)(\.[^\s]+)", "$1 $2");
+                message = message.Length > 193 ? message.Remove(190) + "..." : message;
+            }
+
             lock (messageQueue)
             {
                 if (!messageTimer.Enabled)
@@ -207,6 +230,8 @@ namespace twitchbot.Twitch
         public override void Connect()
         {
             Irc.RfcJoin("#" + ChannelName);
+
+            IsForsens = ChannelName == "forsenlol";
 
             messageLimitTimer.Start();
         }
@@ -344,7 +369,7 @@ namespace twitchbot.Twitch
 
         public override bool IsOwner(User user)
         {
-            return Bot.TwitchOwner == user.ID;
+            return string.Equals(Bot.TwitchOwner, user.ID, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

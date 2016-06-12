@@ -27,10 +27,19 @@ namespace twitchbot
     {
         public event EventHandler<MessageEventArgs> ChannelMessageReceived;
 
+
+        public ConcurrentDictionary<string, User> TwitchUsersByID = new ConcurrentDictionary<string, User>();
+        public ConcurrentDictionary<string, User> TwitchUsersByName = new ConcurrentDictionary<string, User>();
+
+        public ConcurrentDictionary<string, User> DiscordUsersByID = new ConcurrentDictionary<string, User>();
+        public ConcurrentDictionary<string, User> DiscordUsersByName = new ConcurrentDictionary<string, User>();
+
+
         // Properies
         public IrcClient TwitchIrc { get; private set; }
         public DiscordClient DiscordClient { get; private set; }
         public Interpreter Interpreter { get; private set; }
+
 
         // CHANNEL SETTINGS
         public string TwitchOwner { get; set; } = null;
@@ -43,6 +52,9 @@ namespace twitchbot
         public DateTime StartTime { get; private set; }
 
         System.Timers.Timer saveTimer = new System.Timers.Timer(5 * 1000 * 60);
+
+
+        public bool EnableRQ { get; set; } = false;
 
         // COMMANDS
         public List<Command> Commands { get; private set; } = new List<Command>();
@@ -80,6 +92,7 @@ namespace twitchbot
         }
 
         public string TwitchBotName { get; private set; }
+
 
         // ctor
         public Bot()
@@ -193,7 +206,7 @@ namespace twitchbot
                             twitchChannels.Add(c);
                         c.Connect();
                         c.Load();
-                        c.Say("running now pajaHop");
+                        //c.Say("running now pajaHop");
                         return c;
                     }
                 case ChannelType.Discord:
@@ -314,8 +327,8 @@ namespace twitchbot
                                 }
                                 else
                                 {
-                                    if (!c.Action(message, u, C))
-                                        cooldown = true;
+                                    c.Action(message, u, C);
+                                    cooldown = true;
                                 }
 
                                 if (cooldown)
@@ -548,6 +561,88 @@ namespace twitchbot
             {
 
             }
+
+            loadUsers(TwitchUsersByName, TwitchUsersByID, "./db/twitch");
+            loadUsers(DiscordUsersByName, DiscordUsersByID, "./db/discord");
+        }
+
+        private void loadUsers(ConcurrentDictionary<string, User> UsersByName, ConcurrentDictionary<string, User> UsersByID, string UserSavePath)
+        {
+            try
+            {
+                var savePath = UserSavePath;
+
+                if (File.Exists(savePath))
+                {
+                    try
+                    {
+                        using (Stream filestream = File.OpenRead(savePath))
+                        {
+                            using (Stream stream = new GZipStream(filestream, CompressionMode.Decompress))
+                            {
+                                int b = stream.ReadByte();
+                                if (b != 0 && b != 1)
+                                    throw new Exception();
+
+                                while (true)
+                                {
+                                    User user = new User();
+                                    user.Name = stream.ReadString();
+                                    if (b == 0)
+                                        user.ID = user.Name;
+                                    else
+                                        user.ID = stream.ReadString();
+
+                                    while (true)
+                                    {
+                                        switch (stream.ReadByte())
+                                        {
+                                            case 0:
+                                                UsersByID[user.ID] = user;
+                                                if (!UsersByName.ContainsKey(user.Name))
+                                                    UsersByName[user.Name.ToLower()] = user;
+                                                goto end;
+                                            case 1:
+                                                user.Calories = stream.ReadLong();
+                                                break;
+                                            case 2:
+                                                user.MessageCount = stream.ReadLong();
+                                                break;
+                                            case 3:
+                                                user.CharacterCount = stream.ReadLong();
+                                                break;
+                                            case 4:
+                                                user.Points = stream.ReadLong();
+                                                break;
+                                            case 5:
+                                                user.Flags = (UserFlags)stream.ReadInt();
+                                                break;
+                                            case 6:
+                                                user.GachiGASM = stream.ReadLong();
+                                                break;
+                                            case 0x10:
+                                                user.AddItem(stream.ReadString(), stream.ReadLong());
+                                                break;
+                                            case 0xFF:
+                                                UsersByID[user.ID] = user;
+                                                if (!UsersByName.ContainsKey(user.Name))
+                                                    UsersByName[user.Name.ToLower()] = user;
+                                                goto veryend;
+                                        }
+                                    }
+                                    end:;
+                                }
+                                veryend:;
+                            }
+                        }
+                    }
+                    catch
+                    {
+
+                    }
+                }
+            }
+            catch { }
         }
 
         public void Save()
@@ -577,7 +672,62 @@ namespace twitchbot
             File.WriteAllLines("./db/evalcommands.txt", EvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
             //w.Stop();
             //Say("#pajlada", $"Saved in {w.Elapsed.TotalSeconds:0.000} seconds.");
+
+            saveUsers(TwitchUsersByName, "./db/twitch");
+            saveUsers(DiscordUsersByName, "./db/discord");
         }
+
+        private void saveUsers(ConcurrentDictionary<string, User> UsersByName, string UserSavePath)
+        {
+            try
+            {
+                var savePath = UserSavePath;
+
+                using (Stream filestream = File.OpenWrite(savePath))
+                {
+                    using (Stream stream = new GZipStream(filestream, CompressionMode.Compress))
+                    {
+                        stream.WriteByte(1);
+                        bool first = true;
+                        foreach (User u in UsersByName.Values)
+                        {
+                            if (first)
+                                first = false;
+                            else
+                                stream.WriteByte(0);
+
+                            stream.WriteString(u.Name);
+                            stream.WriteString(u.ID);
+
+                            if (u.Calories != 0) { stream.WriteByte(0x01); stream.WriteLong(u.Calories); }
+                            if (u.MessageCount != 0) { stream.WriteByte(0x02); stream.WriteLong(u.MessageCount); }
+                            if (u.CharacterCount != 0) { stream.WriteByte(0x03); stream.WriteLong(u.CharacterCount); }
+                            if (u.Points != 0) { stream.WriteByte(0x04); stream.WriteLong(u.Points); }
+
+                            if (u.Flags != 0) { stream.WriteByte(0x05); stream.WriteInt((int)u.Flags); }
+                            if (u.GachiGASM != 0) { stream.WriteByte(0x06); stream.WriteLong(u.GachiGASM); }
+
+                            if (u.Inventory != null)
+                            {
+                                lock (u.Inventory)
+                                {
+                                    foreach (InventoryItem item in u.Inventory)
+                                    {
+                                        stream.WriteByte(0x10);
+                                        stream.WriteString(item.Name);
+                                        stream.WriteLong(item.Count);
+                                    }
+                                }
+                            }
+                        }
+                        stream.WriteByte(0xFF);
+                    }
+                }
+            }
+            catch { }
+        }
+
+
 
         //public void Restart()
         //{

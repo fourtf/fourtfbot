@@ -4,9 +4,12 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -22,8 +25,11 @@ namespace twitchbot
         public static string RecipesUrl { get; private set; } = "no url set up";
         public static string UserUrl { get; private set; } = "no url set up";
 
+
         static void Main(string[] args)
         {
+            ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, sslPolicyErrors) => true;
+
             Directory.SetCurrentDirectory(new FileInfo(System.Reflection.Assembly.GetEntryAssembly().Location).Directory.FullName);
 
             Settings settings = new Settings();
@@ -42,7 +48,7 @@ namespace twitchbot
                     bot.TwitchOwner = twitchOwner;
                     bot.ConnectTwitch(twitchUser, twitchOAuth);
                     foreach (var c in twitchChannels)
-                        bot.AddChannel(ChannelType.Twitch, c);
+                        bot.AddChannel(ChannelType.Twitch, c.TrimStart('#'));
                     Console.WriteLine("Twitch support enabled.");
                 }
                 else
@@ -130,7 +136,7 @@ namespace twitchbot
                 "roulete",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     ShopItem item;
                     long count;
@@ -174,7 +180,7 @@ namespace twitchbot
             "buy",
             (m, u, c) =>
             {
-                string[] S = m.ToLower().Split();
+                string[] S = m.ToLower().SplitWords();
 
                 long count;
                 ShopItem item;
@@ -227,7 +233,7 @@ namespace twitchbot
             "blackmarket",
             (m, u, c) =>
             {
-                string[] S = m.Split();
+                string[] S = m.SplitWords();
                 if (S.Length > 1)
                     c.TryWhisperUser(u, $"{u}, use !buy <item> to buy items from one of the shops :)");
 
@@ -251,7 +257,7 @@ namespace twitchbot
             "items",
             (m, u, c) =>
             {
-                string[] S = m.ToLowerInvariant().Split();
+                string[] S = m.ToLowerInvariant().SplitWords();
 
                 User user;
                 S.TryGetUser(1, c, out user);
@@ -292,7 +298,7 @@ namespace twitchbot
             "useritems",
             (m, u, c) =>
             {
-                string[] S = m.ToLowerInvariant().Split();
+                string[] S = m.ToLowerInvariant().SplitWords();
 
                 User user;
                 S.TryGetUser(1, c, out user);
@@ -306,7 +312,10 @@ namespace twitchbot
                     {
                         if (user.Inventory.Count > 20)
                         {
-                            c.Say($"{u}, your inventory is too large to send as text FeelsGoodMan {UserUrl + user.Name}");
+                            if (u == user)
+                                c.Say($"{u}, your inventory is too large to send as text FeelsGoodMan {UserUrl + user.Name}");
+                            else
+                                c.Say($"{user} has too many items to print LUL {UserUrl + user.Name}");
                             return;
                         }
 
@@ -343,7 +352,7 @@ namespace twitchbot
             "eat",
             (m, u, c) =>
             {
-                string[] S = m.ToLower().Split();
+                string[] S = m.ToLower().SplitWords();
 
                 long count;
                 ShopItem item;
@@ -388,7 +397,7 @@ namespace twitchbot
             "diet",
             (m, u, c) =>
             {
-                string[] S = m.ToLower().Split();
+                string[] S = m.ToLower().SplitWords();
 
                 long calories;
 
@@ -430,7 +439,7 @@ namespace twitchbot
             "give",
             (m, u, c) =>
             {
-                string[] S = m.ToLower().Split();
+                string[] S = m.ToLower().SplitWords();
 
                 User target;
                 ShopItem item;
@@ -475,7 +484,7 @@ namespace twitchbot
             "give2",
             (m, u, c) =>
             {
-                string[] S = m.ToLower().Split();
+                string[] S = m.ToLower().SplitWords();
 
                 User target;
                 ShopItem item;
@@ -506,7 +515,7 @@ namespace twitchbot
             "fight",
             (m, u, c) =>
             {
-                string[] S = m.ToLowerInvariant().Split();
+                string[] S = m.ToLowerInvariant().SplitWords();
 
                 User user;
                 ShopItem item;
@@ -568,7 +577,7 @@ namespace twitchbot
 
                             c.Say($"{u} is dueling {user} for {item.GetNumber(count)} PogChamp");
 
-                            c.TryWhisperUser(user, $"{u} is dueling you for {item.GetNumber(count)}. Type \"!fight accept\" in chat to accept or \"!fight deny\" to deny.");
+                            c.TryWhisperUser(user, $"{u} is dueling you for {item.GetNumber(count)}. Type \"!fight accept\" in {c.LongName} to accept or \"!fight deny\" to deny.");
                         }
                     }
                 }
@@ -655,7 +664,7 @@ namespace twitchbot
             "trade",
             (m, u, c) =>
             {
-                string[] S = m.ToLowerInvariant().Split();
+                string[] S = m.ToLowerInvariant().SplitWords();
 
                 bool worked = true;
 
@@ -784,7 +793,7 @@ namespace twitchbot
                         lock (c.Trades)
                         {
                             c.Trades.Add(new Channel.TradeItem { ExpireDate = DateTime.Now + c.TradeTimeout, User = u, Wants = wants, Gives = gives });
-                            c.Say($"type \"!trade {u.Name}\" to accept their trade SeemsGood");
+                            c.Say($"type \"!trade {u.Name}\" in {c.LongName} to accept their trade SeemsGood");
                         }
                     }
                 }
@@ -1049,7 +1058,7 @@ namespace twitchbot
             {
                 if (u.HasItem("whip", 1))
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     if (S.Length > 1)
                     {
@@ -1184,7 +1193,7 @@ namespace twitchbot
                                 ShopItem l;
                                 error += 5;
 
-                                string[] S = m.ToLower().Split();
+                                string[] S = m.ToLower().SplitWords();
                                 if ((S.Length > 1 && (l = ShopItem.GetItem(S[1] + "-liquid")) != null) || S.TryGetItemOrPointz(1, out l))
                                 {
                                     if (liquids.Contains(l) && l.Flags.HasFlag(ShopItemFlags.Liquid))
@@ -1227,7 +1236,7 @@ namespace twitchbot
                 "inspect",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     if (S.Length > 1)
                     {
@@ -1268,7 +1277,7 @@ namespace twitchbot
                 "pet",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     ShopItem item;
                     User user;
@@ -1299,7 +1308,7 @@ namespace twitchbot
                 "craft",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     ShopItem item;
                     long count;
@@ -1332,6 +1341,43 @@ namespace twitchbot
                 hasUserCooldown: false));
             #endregion
 
+            #region high5
+            string[] high5Phrases = new[]
+            {
+                "and it made a loud slap sound gachiGASM",
+            };
+
+            bot.Commands.Add(new Command("highfive",
+                (m, u, c) =>
+                {
+                    var S = m.ToLower().SplitWords();
+
+                    User user;
+                    if (S.TryGetUser(1, c, out user))
+                    {
+                        if (u == user)
+                        {
+                            c.Say($"{u} is trying to highfive himself LUL");
+                            return;
+                        }
+
+                        lock (c.High5s)
+                        {
+                            var h = c.High5s.FirstOrDefault(x => x.From == user && x.To == u);
+                            if (h == null)
+                            {
+                                c.High5s.Add(new Channel.High5Item { From = u, To = user, ExpireDate = DateTime.Now + TimeSpan.FromMinutes(30) });
+                                c.TryWhisperUser(user, $"{u} is trying to highfive you. Type !highfive {u} in {c.LongName} to highfive him.");
+                            }
+                            else
+                            {
+                                c.SayMe($"{user} highfived {u} {high5Phrases[Util.GetRandom(0, high5Phrases.Length)]}");
+                            }
+                        }
+                    }
+                }, hasUserCooldown: false));
+            #endregion
+
 
             // MISC COMMANDS
             #region randomgachi
@@ -1355,7 +1401,7 @@ namespace twitchbot
                 (m, u, c) =>
                 {
                     User user;
-                    if (m.ToLower().Split().TryGetUser(1, c, out user))
+                    if (m.ToLower().SplitWords().TryGetUser(1, c, out user))
                         c.Say($"{u}, {user} wrote gachiGASM {user.GachiGASM} times gachiGASM");
                     else
                         c.Say($"{u}, you wrote gachiGASM {u.GachiGASM} times gachiGASM");
@@ -1398,7 +1444,7 @@ namespace twitchbot
                 "commanduses",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     if (S.Length > 1)
                     {
@@ -1442,7 +1488,7 @@ namespace twitchbot
                 "top",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLower().Split();
+                    string[] S = m.ToLower().SplitWords();
                     if (S.Length >= 2)
                     {
                         string item = S[1];
@@ -1522,7 +1568,43 @@ namespace twitchbot
                         if (o is double || o is float || o is int || o is long)
                             c.Say(o.ToString());
                     }
-                    catch {  }
+                    catch { }
+                }
+                ));
+            #endregion
+
+
+            #region rq
+            bot.Commands.Add(new Command(
+                "rq",
+                (m, u, c) =>
+                {
+                    if (bot.EnableRQ)
+                    {
+                        string[] S = m.SplitWords();
+
+                        User user;
+                        if (!S.TryGetUser(1, c, out user))
+                        {
+                            user = u;
+                        }
+
+                        new Task(() =>
+                        {
+                            try
+                            {
+                                using (WebClient client = new WebClient())
+                                {
+                                    var quote = client.DownloadString($"https://api.gempir.com/channel/pajlada/user/{user.Name}/random");
+                                    c.Say(quote);
+                                }
+                            }
+                            catch (Exception exc)
+                            {
+                                c.Say(exc.Message);
+                            }
+                        }).Start();
+                    }
                 }
                 ));
             #endregion
@@ -1531,28 +1613,28 @@ namespace twitchbot
             // ADMIN COMMANDS
             #region alias
             bot.Commands.Add(new Command(
-                    "+alias",
-                    (m, u, c) =>
-                    {
-                        string[] S = m.ToLowerInvariant().Split();
-
-                        if (S.Length > 2)
+                        "+alias",
+                        (m, u, c) =>
                         {
-                            string _command = S[1];
-                            if (bot.Commands.Any(x => _command == x.Name))
-                            {
-                                bot.CommandAliases[S[2]] = _command;
+                            string[] S = m.ToLowerInvariant().SplitWords();
 
-                                c.Say($"{u}, added command alias {S[2]} for {_command}");
+                            if (S.Length > 2)
+                            {
+                                string _command = S[1];
+                                if (bot.Commands.Any(x => _command == x.Name))
+                                {
+                                    bot.CommandAliases[S[2]] = _command;
+
+                                    c.Say($"{u}, added command alias {S[2]} for {_command}");
+                                }
                             }
-                        }
-                    }));
+                        }));
 
             bot.Commands.Add(new Command(
                 "-alias",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     if (S.Length > 1)
                     {
@@ -1565,7 +1647,7 @@ namespace twitchbot
                 "alias",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLowerInvariant().Split();
+                    string[] S = m.ToLowerInvariant().SplitWords();
 
                     if (S.Length > 1)
                     {
@@ -1620,7 +1702,7 @@ namespace twitchbot
                 {
                     try
                     {
-                        var S = m.Split();
+                        var S = m.SplitWords();
                         var _user = S[1].ToLower();
                         var user = c.GetUserOrDefaultByName(_user);
 
@@ -1646,7 +1728,7 @@ namespace twitchbot
                 {
                     try
                     {
-                        var S = m.Split();
+                        var S = m.SplitWords();
                         var _user = S[1].ToLower();
                         var user = c.GetUserOrDefaultByName(_user);
 
@@ -1672,7 +1754,7 @@ namespace twitchbot
                 {
                     try
                     {
-                        var S = m.Split();
+                        var S = m.SplitWords();
                         var _user = S[1].ToLower();
                         var user = c.GetUserOrDefaultByName(_user);
 
@@ -1691,7 +1773,7 @@ namespace twitchbot
             "reffle",
             (m, u, c) =>
             {
-                string[] S = m.ToLower().Split();
+                string[] S = m.ToLower().SplitWords();
 
                 long count;
                 ShopItem item;
@@ -1715,11 +1797,13 @@ namespace twitchbot
                         }
                         else if (item == null ? count > max : item.Price * count > max)
                         {
-                            c.TryWhisperUser(u, $"You current available mod pointz for reffles are {max}. You gain 40 every 5 minutes (max 10000).");
+                            c.TryWhisperUser(u, $"You current available pointz for reffles are {max}. You gain 40 every 5 minutes (max 10000).");
+                            return;
                         }
                         else if (count < 0)
                         {
                             c.TryWhisperUser(u, "You can't reffle negative amounts :/");
+                            return;
                         }
                         else
                         {
@@ -1729,10 +1813,19 @@ namespace twitchbot
 
                     var group = Regex.Match(m, @"^[^\s]+\s+[^\s]+\s+[^\s]+(\s+(?<emote>.+))?$").Groups["emote"];
 
-                    c.SayMe($"A reffle for {item.GetNumber(count)} started. Type {(group.Success ? group.Value : item?.Emote ?? "Kappa")} / to join it. The reffle will end in 45 seconds.");
+                    string fastEmote = null;
+                    double time = 45;
+                    if (S.Contains("fast"))
+                    {
+                        fastEmote = "Volcania";
+                        time = 10;
+                    }
+
+                    c.SayMe($"A reffle for {item.GetNumber(count)} started. Type {fastEmote ?? (group.Success ? group.Value : item?.Emote ?? "Kappa")} / to join it. The reffle will end in {time} seconds.");
 
                     c.RaffleActive = true;
-                    c.QueueAction(S.Contains("fast") ? 10 : 45, () =>
+
+                    c.QueueAction(time, () =>
                     {
                         c.RaffleActive = false;
 
@@ -1788,6 +1881,27 @@ namespace twitchbot
                 }
             };
 
+            bot.Commands.Add(new Command(
+            "refflepointz",
+            (m, u, c) =>
+            {
+                string[] S = m.ToLower().SplitWords();
+                if (u.IsAdmin)
+                {
+                    c.TryWhisperUser(u, "You have infinite reffle pointz PogChamp");
+                }
+                else
+                {
+                    int max;
+                    if (!c.ModReffleValueAvailable.TryGetValue(u.ID, out max))
+                        max = 10000;
+
+                    c.TryWhisperUser(u, $"You have {max} pointz for item/pointz reffles left");
+                }
+            }
+            , modOnly: true
+            ));
+
             //bot.Commands.Add(new Command(
             //"yoin",
             //(m, u, c) =>
@@ -1840,7 +1954,7 @@ namespace twitchbot
                 "command",
                 (m, u, c) =>
                 {
-                    string[] S = m.Split();
+                    string[] S = m.SplitWords();
 
                     if (S.Length > 1)
                     {
@@ -1897,7 +2011,7 @@ namespace twitchbot
                 "-command",
                 (m, u, c) =>
                 {
-                    string[] S = m.Split();
+                    string[] S = m.SplitWords();
 
                     if (S.Length > 1)
                     {
@@ -1926,6 +2040,7 @@ namespace twitchbot
                 },
                 ownerOnly: true));
             #endregion
+
 
             //#region save
             //bot.Commands.Add(new Command(
@@ -1982,7 +2097,7 @@ namespace twitchbot
                 "tase",
                 (m, u, c) =>
                 {
-                    string[] S = m.ToLower().Split();
+                    string[] S = m.ToLower().SplitWords();
 
                     User user;
 
