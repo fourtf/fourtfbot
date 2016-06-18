@@ -9,6 +9,10 @@ namespace twitchbot
     public class User
     {
         public string Name { get; set; }
+        public string NameNoPing
+        {
+            get { return Name.Remove(1) + '\u05C4' + Name.Substring(1); }
+        }
         public string ID { get; set; }
 
         public long Points { get; set; }

@@ -112,7 +112,28 @@ namespace twitchbot
                             topCount = 50;
 
                         ShopItem item;
-                        if (S.TryGetItemOrPointz(1, out item))
+
+                        if (S.TryIsString(1, "commands"))
+                        {
+                            if (itemCache.TryGetCache("commands", out cache))
+                            {
+                                success = true;
+                            }
+                            else
+                            {
+                                appendDataArray(builder, success = true, () =>
+                                {
+                                    bool first = true;
+                                    foreach (var x in c.Bot.CommandUses.OrderBy(x => x.Value * -1).Take((int)topCount))
+                                    {
+                                        appendPair(builder, x.Key, x.Value, first);
+                                        first = false;
+                                    }
+                                });
+                                itemCache.SetCache("commands", cache = builder.ToString(), CacheCooldownTop);
+                            }
+                        }
+                        else if (S.TryGetItemOrPointz(1, out item))
                         {
                             if (itemCache.TryGetCache(item?.Name ?? "points", out cache))
                             {

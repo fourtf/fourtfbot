@@ -65,6 +65,14 @@ namespace twitchbot.Discord2
             }
         }
 
+        public override string ChannelSaveID
+        {
+            get
+            {
+                return "discord." + ID;
+            }
+        }
+
         public override void Connect()
         {
             

@@ -70,6 +70,14 @@ namespace twitchbot.Twitch
             }
         }
 
+        public override string ChannelSaveID
+        {
+            get
+            {
+                return "twitch." + ChannelName;
+            }
+        }
+
         Queue<Message> messageQueue = new Queue<Message>();
 
         struct Message
@@ -122,7 +130,7 @@ namespace twitchbot.Twitch
 
         public override void TryWhisperUser(User u, string message)
         {
-            if (Bot.EnableWhispers)
+            if (Bot.EnableTwitchWhispers)
                 Irc.SendMessage(SendType.Message, "#jtv", $"/w {u} {message}");
             else
                 Say($"{u}, {message}");
@@ -130,11 +138,14 @@ namespace twitchbot.Twitch
 
 
         DateTime lastMessage = DateTime.MinValue;
+        //Regex linkReplaceRegex = new Regex(@"(https?://[^\s\.]+)(\.[^\s]+)");
+
         public override void SayRaw(string message, bool force)
         {
             if (IsForsens)
             {
-                message = Regex.Replace(message, @"(https?://[^\s\.]+)(\.[^\s]+)", "$1 $2");
+                //message = linkReplaceRegex.Replace(message, "$1 $2", 1);
+                message = message.Replace(".", ". ");
                 message = message.Length > 193 ? message.Remove(190) + "..." : message;
             }
 
@@ -186,9 +197,9 @@ namespace twitchbot.Twitch
 
                         Action<string> processUser = (u) =>
                         {
-                            User user = GetOrCreateUser(u.ToLower(), u);
-
-                            user.Points += 3;
+                            User user = GetUserOrDefaultByName(u.ToLower());
+                            if (user != null)
+                                user.Points += 3;
                         };
 
                         bool isMod = false;

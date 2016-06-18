@@ -1,99 +1,24 @@
 ﻿//using ChatSharp;
+using Discord;
+using DynamicExpresso;
+using Meebey.SmartIrc4net;
+using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using System.Timers;
-using Meebey.SmartIrc4net;
 using System.Threading;
-using System.IO;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System.Net.Http;
-using System.Net;
-using System.Collections.Concurrent;
-using System.IO.Compression;
-using DynamicExpresso;
-using System.Net.Sockets;
-using System.Diagnostics;
-using twitchbot.Twitch;
+using System.Threading.Tasks;
 using twitchbot.Discord2;
-using Discord;
+using twitchbot.Twitch;
 
 namespace twitchbot
 {
     public class Bot
     {
-        public event EventHandler<MessageEventArgs> ChannelMessageReceived;
-
-
-        public ConcurrentDictionary<string, User> TwitchUsersByID = new ConcurrentDictionary<string, User>();
-        public ConcurrentDictionary<string, User> TwitchUsersByName = new ConcurrentDictionary<string, User>();
-
-        public ConcurrentDictionary<string, User> DiscordUsersByID = new ConcurrentDictionary<string, User>();
-        public ConcurrentDictionary<string, User> DiscordUsersByName = new ConcurrentDictionary<string, User>();
-
-
-        // Properies
-        public IrcClient TwitchIrc { get; private set; }
-        public DiscordClient DiscordClient { get; private set; }
-        public Interpreter Interpreter { get; private set; }
-
-
-        // CHANNEL SETTINGS
-        public string TwitchOwner { get; set; } = null;
-        public string DiscordOwner { get; set; } = null;
-
-        bool connected = false;
-
-        public bool EnableWhispers { get; set; } = false;
-
-        public DateTime StartTime { get; private set; }
-
-        System.Timers.Timer saveTimer = new System.Timers.Timer(5 * 1000 * 60);
-
-
-        public bool EnableRQ { get; set; } = false;
-
-        // COMMANDS
-        public List<Command> Commands { get; private set; } = new List<Command>();
-        public Dictionary<string, string> CommandAliases { get; private set; } = new Dictionary<string, string>();
-
-        public ConcurrentDictionary<string, long> CommandCount { get; private set; } = new ConcurrentDictionary<string, long>();
-
-
-        // GACHI SONGS
-        public List<Song> GachiSongs = new List<Song>();
-
-
-        // EVAL COMMANDS
-        public List<EvalCommand> EvalCommands = new List<EvalCommand>();
-
-        public class EvalCommand : Command
-        {
-            public string Expression { get; private set; }
-
-            public EvalCommand(Bot bot, string name, string expression)
-                : base(name, (m, u, c) =>
-                {
-                    try
-                    {
-                        object o = bot.Interpreter.Eval(expression, new Parameter("C", c));
-
-                        if (o != null)
-                            c.Say(o.ToString());
-                    }
-                    catch (Exception exc) { c.Say(exc.Message); }
-                })
-            {
-                Expression = expression;
-            }
-        }
-
-        public string TwitchBotName { get; private set; }
-
-
         // ctor
         public Bot()
         {
@@ -105,24 +30,18 @@ namespace twitchbot
             Interpreter.SetVariable("Bot", this, typeof(Bot));
 
             TwitchIrc = new IrcClient();
+            TwitchIrc.AutoReconnect = true;
+            TwitchIrc.AutoRelogin = true;
+            TwitchIrc.AutoRejoin = true;
+            TwitchIrc.Encoding = new UTF8Encoding();
 
-            TwitchIrc.OnErrorMessage += (s, e) => { Util.Log(e.Data.ReplyCode.ToString() + " " + e.Data.RawMessage, ConsoleColor.Red); };
-            //TwitchIrc.OnRawMessage += (s, e) =>
-            //{
-            //    Util.Log(e.Data.RawMessage);
-
-            //    if (e.Data.RawMessageArray.Length > 1 && e.Data.RawMessageArray[1] == "WHISPER")
-            //    {
-            //        User u = GetUserOrDefault(e.Data.Nick);
-
-            //        if (u != null && u.IsAdmin)
-            //        {
-            //            var data = new IrcMessageData(TwitchIrc, e.Data.From, e.Data.Nick, e.Data.Ident, e.Data.Host, channels.FirstOrDefault(), e.Data.Message, e.Data.RawMessage, e.Data.Type, e.Data.ReplyCode);
-
-            //            OnChannelMessage(data);
-            //        }
-            //    }
-            //};
+            if (Program.Parameters.Verbose)
+            {
+                TwitchIrc.OnRawMessage += (s, e) =>
+                {
+                    Util.Log(e.Data.RawMessage);
+                };
+            }
 
             TwitchIrc.OnError += (s, e) =>
             {
@@ -138,7 +57,7 @@ namespace twitchbot
 
             TwitchIrc.OnChannelMessage += (s, e) =>
             {
-                twitchChannelMessage(e.Data);
+                OnTwitchChannelMessage(e.Data);
             };
 
             saveTimer.Elapsed += (s, e) =>
@@ -147,6 +66,52 @@ namespace twitchbot
             };
             saveTimer.Start();
         }
+
+
+        // USERS
+        public ConcurrentDictionary<string, User> TwitchUsersByID = new ConcurrentDictionary<string, User>();
+        public ConcurrentDictionary<string, User> TwitchUsersByName = new ConcurrentDictionary<string, User>();
+
+        public ConcurrentDictionary<string, User> DiscordUsersByID = new ConcurrentDictionary<string, User>();
+        public ConcurrentDictionary<string, User> DiscordUsersByName = new ConcurrentDictionary<string, User>();
+
+
+        // SETTINGS
+        public bool EnableTwitchWhispers { get; set; } = false;
+        public bool EnableRQ { get; set; } = false;
+
+
+        // INTERPRETER
+        public Interpreter Interpreter { get; private set; }
+
+
+        // GACHI SONGS
+        public List<Song> GachiSongs = new List<Song>();
+
+
+        // CHANNELS
+        List<Channel> channels = new List<Channel>();
+        List<TwitchChannel> twitchChannels = new List<TwitchChannel>();
+        List<DiscordChannel> discordChannels = new List<DiscordChannel>();
+
+
+        // CONNECTION
+        public event EventHandler<MessageEventArgs> ChannelMessageReceived;
+
+        public IrcClient TwitchIrc { get; private set; }
+        public DiscordClient DiscordClient { get; private set; }
+
+        public string TwitchOwner { get; set; } = null;
+        public string DiscordOwner { get; set; } = null;
+
+        bool connectedTwitch = false;
+
+
+        public DateTime StartTime { get; private set; }
+        public TimeSpan Uptime { get { return DateTime.Now - StartTime; } }
+
+        System.Timers.Timer saveTimer = new System.Timers.Timer(1000 * 60 * 5);
+        /*System.Timers.Timer twitchPongTimer = new System.Timers.Timer(1000 * 60);*/
 
         public void ConnectDiscord(string email, string pass)
         {
@@ -172,9 +137,118 @@ namespace twitchbot
             };
         }
 
-        List<Channel> channels = new List<Channel>();
-        List<TwitchChannel> twitchChannels = new List<TwitchChannel>();
-        List<DiscordChannel> discordChannels = new List<DiscordChannel>();
+        public void ConnectTwitch(string username, string oauthPassword)
+        {
+            if (!connectedTwitch)
+            {
+                TwitchBotName = username;
+
+                try
+                {
+                    TwitchIrc.Connect("irc.twitch.tv", 6667);
+                }
+                catch (ConnectionException e)
+                {
+                    Console.WriteLine("couldn't connect! Reason: " + e.Message);
+                    return;
+                }
+
+                try
+                {
+                    TwitchIrc.Login(username, username, 0, username, "oauth:" + oauthPassword);
+                    connectedTwitch = true;
+
+                    TwitchIrc.WriteLine("CAP REQ :twitch.tv/commands");
+
+                    new Task(() =>
+                    {
+                        while (true)
+                        {
+                            try
+                            {
+                                if (connectedTwitch)
+                                    TwitchIrc.Listen();
+                            }
+                            catch (Exception exc)
+                            {
+                                File.WriteAllText("error", exc.Message + "\r\n\r\n" + exc.StackTrace);
+                            }
+
+                            Thread.Sleep(10000);
+                        }
+                    }).Start();
+                }
+                catch (ConnectionException)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("Error occurred! Message: " + e.Message);
+                    Console.WriteLine("Exception: " + e.StackTrace);
+                    return;
+                }
+            }
+        }
+
+        public void DisconnectTwitch()
+        {
+            connectedTwitch = false;
+            TwitchIrc.Disconnect();
+        }
+
+        void OnTwitchChannelMessage(IrcMessageData data)
+        {
+            try
+            {
+                if (data.Channel.Length < 1)
+                    return;
+
+                TwitchChannel C;
+                lock (twitchChannels)
+                {
+                    var channelName = data.Channel.Substring(1);
+                    C = twitchChannels.FirstOrDefault(x => x.ChannelName == channelName);
+                }
+
+                if (C == null)
+                    return;
+
+
+                string user = data.Nick.ToLower();
+
+                string message = data.Message;
+
+                User u = C.GetOrCreateUser(user, user);
+
+                C.TriggerMessageReceived(new MessageEventArgs(C, u, u.Name, message));
+            }
+            catch (Exception exc)
+            {
+                File.AppendAllText("error", exc.Message + "\r\n" + exc.StackTrace + "\r\n--------\r\n");
+            }
+        }
+
+
+        // COMMANDS
+        public List<Command> Commands { get; private set; } = new List<Command>();
+        public Dictionary<string, string> CommandAliases { get; private set; } = new Dictionary<string, string>();
+
+        public ConcurrentDictionary<string, long> CommandUses { get; private set; } = new ConcurrentDictionary<string, long>();
+
+        public long GetCommandUses(string name)
+        {
+            long l = 0;
+            CommandUses.TryGetValue(name.ToLower(), out l);
+            return l;
+        }
+
+
+        // EVAL COMMANDS
+        public List<EvalCommand> EvalCommands = new List<EvalCommand>();
+
+        public string TwitchBotName { get; private set; }
+
 
         public IEnumerable<Channel> Channels
         {
@@ -250,9 +324,6 @@ namespace twitchbot
             var C = e.Channel;
             var u = e.User;
 
-            bool isAdmin = C.IsOwner(u) || u.IsAdmin;
-            bool isMod = u.IsMod;
-
             u.MessageCount++;
             u.CharacterCount += message.Length;
 
@@ -269,6 +340,14 @@ namespace twitchbot
                 while ((index = message.IndexOf("gachiGASM", index + 1)) != -1)
                     u.GachiGASM++;
             }
+
+            ProcessMessage(message, u, C);
+        }
+
+        public void ProcessMessage(string message, User u, Channel C)
+        {
+            bool isAdmin = C.IsOwner(u) || u.IsAdmin;
+            bool isMod = u.IsMod;
 
             if (!u.IsBanned && message.Length > 2)
                 if (message[0] == '!')
@@ -289,6 +368,12 @@ namespace twitchbot
                     {
                         evalCommand = EvalCommands.FirstOrDefault(x => x.Name == _command) ?? EvalCommands.FirstOrDefault(x => x.Name == aliasFor);
                     }
+
+                    if (evalCommand == null)
+                        lock (C.ChannelEvalCommands)
+                        {
+                            evalCommand = C.ChannelEvalCommands.FirstOrDefault(x => x.Name == _command) ?? C.ChannelEvalCommands.FirstOrDefault(x => x.Name == aliasFor);
+                        }
 
                     (Commands.FirstOrDefault(x => x.Name == _command) ?? Commands.FirstOrDefault(x => x.Name == aliasFor) ?? evalCommand).Process(c =>
                     {
@@ -334,115 +419,11 @@ namespace twitchbot
                                 if (cooldown)
                                     C.UserCommandCache.Enqueue(Tuple.Create(DateTime.Now + TimeSpan.FromSeconds(12), u.Name, c.Name));
 
-                                CommandCount.AddOrUpdate(c.Name, 1, (k, v) => v + 1);
+                                CommandUses.AddOrUpdate(c.Name, 1, (k, v) => v + 1);
                             }
                         }
                     });
                 }
-        }
-
-
-        // Connection
-        public void ConnectTwitch(string username, string oauthPassword)
-        {
-            if (!connected)
-            {
-                connected = true;
-
-                TwitchBotName = username;
-
-                try
-                {
-                    TwitchIrc.Connect("irc.twitch.tv", 6667);
-                }
-                catch (ConnectionException e)
-                {
-                    Console.WriteLine("couldn't connect! Reason: " + e.Message);
-                    return;
-                }
-
-                try
-                {
-                    TwitchIrc.Login(username, username, 0, username, "oauth:" + oauthPassword);
-
-                    TwitchIrc.WriteLine("CAP REQ :twitch.tv/commands");
-
-                    new Task(() =>
-                    {
-                        while (true)
-                        {
-                            try
-                            {
-                                if (connected)
-                                    TwitchIrc.Listen();
-                            }
-                            catch (Exception exc)
-                            {
-                                File.WriteAllText("error", exc.Message + "\r\n\r\n" + exc.StackTrace);
-                            }
-
-                            Thread.Sleep(10000);
-                        }
-                    }).Start();
-                }
-                catch (ConnectionException)
-                {
-                    return;
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine("Error occurred! Message: " + e.Message);
-                    Console.WriteLine("Exception: " + e.StackTrace);
-                    return;
-                }
-            }
-        }
-
-        public void Disconnect()
-        {
-            connected = false;
-            TwitchIrc.Disconnect();
-        }
-
-
-        // Users
-        public long GetCommandUses(string name)
-        {
-            long l = 0;
-            CommandCount.TryGetValue(name.ToLower(), out l);
-            return l;
-        }
-
-        void twitchChannelMessage(IrcMessageData data)
-        {
-            try
-            {
-                if (data.Channel.Length < 1)
-                    return;
-
-                TwitchChannel C;
-                lock (twitchChannels)
-                {
-                    var channelName = data.Channel.Substring(1);
-                    C = twitchChannels.FirstOrDefault(x => x.ChannelName == channelName);
-                }
-
-                if (C == null)
-                    return;
-
-
-                string user = data.Nick.ToLower();
-
-                string message = data.Message;
-
-                User u = C.GetOrCreateUser(user, user);
-
-                C.TriggerMessageReceived(new MessageEventArgs(C, u, u.Name, message));
-            }
-            catch (Exception exc)
-            {
-                File.AppendAllText("error", exc.Message + "\r\n" + exc.StackTrace + "\r\n--------\r\n");
-            }
         }
 
 
@@ -491,7 +472,7 @@ namespace twitchbot
                             {
                                 long count;
                                 if (long.TryParse(line.Substring(index + 1), out count))
-                                    CommandCount[line.Remove(index)] = count;
+                                    CommandUses[line.Remove(index)] = count;
                             }
                         }
                     }
@@ -509,7 +490,7 @@ namespace twitchbot
                                 if ((index = line.IndexOf('=')) != -1)
                                 {
                                     string name = line.Remove(index);
-                                    EvalCommands.Add(new EvalCommand(this, name.Trim('%'), line.Substring(index + 1)) { AdminOnly = name.IndexOf('%') != -1 });
+                                    EvalCommands.Add(new EvalCommand(this, name.TrimStart('%'), line.Substring(index + 1)) { AdminOnly = name.IndexOf('%') != -1 });
                                 }
                             }
                             catch
@@ -667,7 +648,7 @@ namespace twitchbot
             }
 
             File.WriteAllLines("./db/aliases.txt", CommandAliases.Select(k => k.Key + "=" + k.Value));
-            File.WriteAllLines("./db/stats.txt", CommandCount.Select(k => k.Key + "=" + k.Value));
+            File.WriteAllLines("./db/stats.txt", CommandUses.Select(k => k.Key + "=" + k.Value));
 
             File.WriteAllLines("./db/evalcommands.txt", EvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
             //w.Stop();
@@ -726,16 +707,5 @@ namespace twitchbot
             }
             catch { }
         }
-
-
-
-        //public void Restart()
-        //{
-        //    if (Util.IsLinux)
-        //    {
-        //        Save();
-        //        Process.Start("bash", $"-c 'service fourtfbot restart'");
-        //    }
-        //}
     }
 }

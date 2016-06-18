@@ -25,10 +25,13 @@ namespace twitchbot
         public static string RecipesUrl { get; private set; } = "no url set up";
         public static string UserUrl { get; private set; } = "no url set up";
 
+        public static AppParameters Parameters = new AppParameters();
 
         static void Main(string[] args)
         {
             ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, sslPolicyErrors) => true;
+
+            CommandLine.Parser.Default.ParseArguments(args, Parameters);
 
             Directory.SetCurrentDirectory(new FileInfo(System.Reflection.Assembly.GetEntryAssembly().Location).Directory.FullName);
 
@@ -68,7 +71,7 @@ namespace twitchbot
                 }
                 else
                 {
-                    Console.WriteLine("Twitch support disabled: DiscordEmail, DiscordPassword or DiscordOwner not found in settings or invalid.");
+                    Console.WriteLine("Discord support disabled: DiscordEmail, DiscordPassword or DiscordOwner not found in settings or invalid.");
                 }
             }
 
@@ -80,7 +83,7 @@ namespace twitchbot
                 UserUrl = UrlRoot + "user/";
             }
 
-            bot.EnableWhispers = true;
+            bot.EnableTwitchWhispers = true;
 
             bot.Channels.FirstOrDefault(x => (x as Twitch.TwitchChannel)?.True() ?? false).Process(x => new Thread(Api.StartApiServer).Start(x));
 
@@ -213,17 +216,20 @@ namespace twitchbot
                 }
                 else
                 {
-                    string s = "items (price) in the shop: ";
-                    lock (ShopItem.Items)
+                    if (c.CanPostCommandDescription("buy"))
                     {
-                        foreach (var i in ShopItem.Items.Values)
+                        string s = "items (price) in the shop: ";
+                        lock (ShopItem.Items)
                         {
-                            if (i.Price > 0)
-                                s += i.Name + " (" + i.Price + "), ";
+                            foreach (var i in ShopItem.Items.Values)
+                            {
+                                if (i.Price > 0)
+                                    s += i.Name + " (" + i.Price + "), ";
+                            }
                         }
-                    }
 
-                    c.Say(s.TrimEnd(' ', ','));
+                        c.Say(s.TrimEnd(' ', ','));
+                    }
                 }
             },
                 hasUserCooldown: false
@@ -233,21 +239,24 @@ namespace twitchbot
             "blackmarket",
             (m, u, c) =>
             {
-                string[] S = m.SplitWords();
-                if (S.Length > 1)
-                    c.TryWhisperUser(u, $"{u}, use !buy <item> to buy items from one of the shops :)");
-
-                string s = "a shady dealer shows you the following items (price): ";
-                lock (ShopItem.Items)
+                if (c.CanPostCommandDescription("blackmarket"))
                 {
-                    foreach (var item in ShopItem.Items.Values)
-                    {
-                        if (item.Price < 0)
-                            s += item.Name + " (" + item.Price + "), ";
-                    }
-                }
+                    string[] S = m.ToLower().SplitWords();
+                    if (S.Length > 1) 
+                        c.TryWhisperUser(u, $"{u}, use !buy <item> to buy items from one of the shops :)");
 
-                c.Say(s.TrimEnd(' ', ','));
+                    string s = "a shady dealer shows you the following items (price): ";
+                    lock (ShopItem.Items)
+                    {
+                        foreach (var item in ShopItem.Items.Values)
+                        {
+                            if (item.Price < 0)
+                                s += item.Name + " (" + item.Price + "), ";
+                        }
+                    }
+
+                    c.Say(s.TrimEnd(' ', ','));
+                }
             },
             cooldown: TimeSpan.FromSeconds(10)));
             #endregion
@@ -269,7 +278,7 @@ namespace twitchbot
                 {
                     lock (user.Inventory)
                     {
-                        if (user.Inventory.Count > 20)
+                        if (user.Inventory.Count > (c.IsForsens ? 10 : 20))
                         {
                             if (u == user)
                                 c.Say($"{u}, your inventory is too large to send as text FeelsGoodMan {UserUrl + user.Name}");
@@ -310,7 +319,7 @@ namespace twitchbot
                 {
                     lock (user.Inventory)
                     {
-                        if (user.Inventory.Count > 20)
+                        if (user.Inventory.Count > (c.IsForsens ? 10 : 20))
                         {
                             if (u == user)
                                 c.Say($"{u}, your inventory is too large to send as text FeelsGoodMan {UserUrl + user.Name}");
@@ -384,7 +393,8 @@ namespace twitchbot
                 }
                 else
                 {
-                    c.Say($"{u}, to eat something type \"!eat <count> <item>\" SeemsGood");
+                    if (c.CanPostCommandDescription("eat"))
+                        c.Say($"{u}, to eat something type \"!eat <count> <item>\" SeemsGood");
                 }
 
             },
@@ -420,16 +430,9 @@ namespace twitchbot
                 }
                 else
                 {
-                    c.Say($"{u}, type !diet <count> loose some calories OpieOP");
+                    if (c.CanPostCommandDescription("diet"))
+                        c.Say($"{u}, type !diet <count> loose some calories OpieOP");
                 }
-            }
-            ));
-
-            bot.Commands.Add(new Command(
-            "diet",
-            (m, u, c) =>
-            {
-                c.Say($"{u}, to gamble you calories type !diet <count>");
             }
             ));
             #endregion
@@ -475,6 +478,11 @@ namespace twitchbot
                             c.TryWhisperUser(u, $"{u}, you don't have that many {item.GetPlural()}.");
                         }
                     }
+                }
+                else
+                {
+                    if (c.CanPostCommandDescription("give"))
+                        c.Say($"{u}, to give someone an item/pointz type !give <user> <amount> <item>");
                 }
             },
                 hasUserCooldown: false
@@ -653,7 +661,8 @@ namespace twitchbot
                 }
                 else
                 {
-                    c.Say($"{u}, to duel someone type !fight <user> <count> [item]");
+                    if (c.CanPostCommandDescription("fight"))
+                        c.Say($"{u}, to duel someone type !fight <user> <count> [item]");
                 }
             }
             ));
@@ -861,7 +870,8 @@ namespace twitchbot
                 }
                 else
                 {
-                    c.Say($"{u}, to open a trade type \"!trade <count> <item> for <count> <item>\". You can use \"and\" to trade multiple items.");
+                    if (c.CanPostCommandDescription("trade"))
+                        c.Say($"{u}, to open a trade type \"!trade <count> <item> for <count> <item>\". You can use \"and\" to trade multiple items.");
                 }
             }
             ));
@@ -920,7 +930,8 @@ namespace twitchbot
                 }
                 else
                 {
-                    c.Say($"{u}, to throw an item at someone type !throw <item> at <user>.");
+                    if (c.CanPostCommandDescription("throw"))
+                        c.Say($"{u}, to throw an item at someone type !throw <item> at <user>.");
                 }
             }
             ));
@@ -1037,7 +1048,8 @@ namespace twitchbot
                 }
                 else
                 {
-                    c.Say($"{u}, to shoot someone type !shoot <weapon or ammo> at <user>.");
+                    if (c.CanPostCommandDescription("shoot"))
+                        c.Say($"{u}, to shoot someone type !shoot <weapon or ammo> at <user>.");
                 }
             }
             ));
@@ -1220,7 +1232,7 @@ namespace twitchbot
                         }
                         else
                         {
-                            c.TryWhisperUser(u, $"{u}, you need a vape in order to vape. You can buy one in the !shop");
+                            c.TryWhisperUser(u, $"{u}, you need a vape in order to vape. You can buy one in the !shop for 1000 fourtf pointz");
                         }
                     }
                     catch (Exception exc)
@@ -1335,7 +1347,8 @@ namespace twitchbot
                     }
                     else
                     {
-                        c.Say($"{u}, to craft items type !craft <count> <item>. Available items to craft: {RecipesUrl}");
+                        if (c.CanPostCommandDescription("craft"))
+                            c.Say($"{u}, to craft items type !craft <count> <item>. Available items to craft: {RecipesUrl}");
                     }
                 },
                 hasUserCooldown: false));
@@ -1402,9 +1415,9 @@ namespace twitchbot
                 {
                     User user;
                     if (m.ToLower().SplitWords().TryGetUser(1, c, out user))
-                        c.Say($"{u}, {user} wrote gachiGASM {user.GachiGASM} times gachiGASM");
+                        c.Say($"{u}, {user} wrote gachiGASM {user.GachiGASM} times which is {(user.GachiGASM * 9d) / user.CharacterCount:0.000}% of {user}'s chatlog");
                     else
-                        c.Say($"{u}, you wrote gachiGASM {u.GachiGASM} times gachiGASM");
+                        c.Say($"{u}, you wrote gachiGASM {u.GachiGASM} times which is {(u.GachiGASM * 9d) / u.CharacterCount:0.000}% of your chatlog");
                 }
                 ));
 
@@ -1413,6 +1426,7 @@ namespace twitchbot
                 (m, u, c) =>
                 {
                     c.Say($"{u}, top gachiGASM count: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.GachiGASM * -1).Take(3).Where(user => user.GachiGASM != 0).Select(user => $"{user.Name} ({user.GachiGASM})"))}");
+                    // top % of chatlog: {string.Join(", ", c.UsersByName.Values.Where(x => x.GachiGASM != 0 && x.CharacterCount != 0).OrderBy(x => x.GachiGASM / x.CharacterCount).Take(3).Where(user => user.GachiGASM != 0).Select(user => $"{user.Name} ({(user.GachiGASM * 9d) / user.CharacterCount:0.000})"))}"
                 },
                 cooldown: TimeSpan.FromSeconds(15)
                 ));
@@ -1495,25 +1509,25 @@ namespace twitchbot
 
                         if (item == "point" || item == "pointz" || item == "points")
                         {
-                            c.Say($"{u}, top pointz: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Points * -1).Take(topCount).Where(user => user.Points != 0).Select(user => $"{user.Name} ({user.Points})"))}");
+                            c.Say($"{u}, top pointz: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Points * -1).Take(topCount).Where(user => user.Points != 0).Select(user => $"{user.NameNoPing} ({user.Points})"))}");
                         }
                         else if (item == "calorie" || item == "calories")
                         {
-                            c.Say($"{u}, top calories: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Calories * -1).Take(topCount).Where(user => user.Calories != 0).Select(user => $"{user.Name} ({user.Calories})"))}");
+                            c.Say($"{u}, top calories: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Calories * -1).Take(topCount).Where(user => user.Calories != 0).Select(user => $"{user.NameNoPing} ({user.Calories})"))}");
                         }
                         else if (item == "message" || item == "messages")
                         {
-                            c.Say($"{u}, top messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.MessageCount * -1).Take(topCount).Where(user => user.MessageCount != 0).Select(user => $"{user.Name} ({user.MessageCount})"))}");
+                            c.Say($"{u}, top messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.MessageCount * -1).Take(topCount).Where(user => user.MessageCount != 0).Select(user => $"{user.NameNoPing} ({user.MessageCount})"))}");
                         }
                         else if (item == "characters" || item == "chars")
                         {
-                            c.Say($"{u}, top characters in messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.CharacterCount * -1).Where(user => user.CharacterCount != 0).Take(topCount).Select(user => $"{user.Name} ({user.CharacterCount})"))}");
+                            c.Say($"{u}, top characters in messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.CharacterCount * -1).Where(user => user.CharacterCount != 0).Take(topCount).Select(user => $"{user.NameNoPing} ({user.CharacterCount})"))}");
                         }
                         else
                         {
                             ShopItem i = ShopItem.GetItem(item);
                             if (i != null)
-                                c.Say($"{u}, top {i.GetPlural()}: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.ItemCount(i.Name) * -1).Take(topCount).Where(user => user.ItemCount(i.Name) != 0).Select(user => $"{user.Name} ({user.ItemCount(i.Name)})"))}");
+                                c.Say($"{u}, top {i.GetPlural()}: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.ItemCount(i.Name) * -1).Take(topCount).Where(user => user.ItemCount(i.Name) != 0).Select(user => $"{user.NameNoPing} ({user.ItemCount(i.Name)})"))}");
                         }
                     }
                 }, hasUserCooldown: false
@@ -1525,7 +1539,7 @@ namespace twitchbot
                 "bottompointz",
                 (m, u, c) =>
                 {
-                    c.Say($"{u}, bottom pointz: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Points).Take(topCount).Where(user => user.Points != 0).Select(user => $"{user.Name} ({user.Points})"))}");
+                    c.Say($"{u}, bottom pointz: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Points).Take(topCount).Where(user => user.Points != 0).Select(user => $"{user.NameNoPing} ({user.Points})"))}");
                 },
                 cooldown: TimeSpan.FromSeconds(15)
                 ));
@@ -1572,7 +1586,6 @@ namespace twitchbot
                 }
                 ));
             #endregion
-
 
             #region rq
             bot.Commands.Add(new Command(
@@ -1689,7 +1702,7 @@ namespace twitchbot
             "topcalories",
                 (m, u, c) =>
                 {
-                    c.Say($"{u}, top calories: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Calories * -1).Take(3).Where(user => user.Calories != 0).Select(user => $"{user.Name} ({user.Calories})"))}");
+                    c.Say($"{u}, top calories: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Calories * -1).Take(3).Where(user => user.Calories != 0).Select(user => $"{user.NameNoPing} ({user.Calories})"))}");
                 },
                 cooldown: TimeSpan.FromSeconds(15)
                 ));
@@ -1873,7 +1886,7 @@ namespace twitchbot
 
                     if (e.LowerSplitMessage.Contains("/") || e.LowerSplitMessage.Contains("\\"))
                     {
-                        if (!u.IsBot)
+                        if (!u.IsBot && !u.IsBanned)
                         {
                             e.Channel.RaffleUsers[u.Name] = u;
                         }
@@ -1937,7 +1950,7 @@ namespace twitchbot
                 {
                     try
                     {
-                        object o = bot.Interpreter.Eval(m.Substring("!print ".Length), new Parameter("C", c));
+                        object o = bot.Interpreter.Eval(m.Substring("!print ".Length), new Parameter("C", c), new Parameter("U", u));
 
                         if (o != null)
                             c.Say(o.ToString());
@@ -1959,10 +1972,11 @@ namespace twitchbot
                     if (S.Length > 1)
                     {
                         lock (bot.EvalCommands)
+                        lock (c.ChannelEvalCommands)
                         {
                             string name = S[1].ToLower();
 
-                            var command = bot.EvalCommands.FirstOrDefault(x => x.Name == name);
+                            var command = bot.EvalCommands.FirstOrDefault(x => x.Name == name) ?? c.ChannelEvalCommands.FirstOrDefault(x => x.Name == name);
                             if (command != null)
                             {
                                 c.Say($"{u}, {command.Expression}");
@@ -1977,8 +1991,9 @@ namespace twitchbot
                 (m, u, c) =>
                 {
                     lock (bot.EvalCommands)
+                    lock (c.ChannelEvalCommands)
                     {
-                        c.Say($"{u}, {string.Join(", ", bot.EvalCommands.Select(x => x.Name))}");
+                        c.Say($"{u}, {string.Join(", ", bot.EvalCommands.Select(x => x.Name).Concat(c.ChannelEvalCommands.Select(x => "#" + x.Name)))}");
                     }
                 },
                 adminOnly: true));
@@ -1992,17 +2007,25 @@ namespace twitchbot
                     {
                         var name = match.Groups["name"].Value.ToLower();
                         bool adminOnly = name.IndexOf('%') != -1;
-                        name = name.Trim('%');
+                        bool channelOnly = name.IndexOf('#') != -1;
+                        name = name.TrimStart(new char[] { '%', '#' });
 
                         var expression = match.Groups["command"].Value;
-                        lock (bot.EvalCommands)
-                        {
-                            int index;
-                            if ((index = bot.EvalCommands.FindIndex(x => x.Name == name)) != -1)
-                                bot.EvalCommands.RemoveAt(index);
+                        lock (c.ChannelEvalCommands)
+                            lock (bot.EvalCommands)
+                            {
+                                int index;
+                                if ((index = bot.EvalCommands.FindIndex(x => x.Name == name)) != -1)
+                                    bot.EvalCommands.RemoveAt(index);
 
-                            bot.EvalCommands.Add(new Bot.EvalCommand(bot, name, expression) { AdminOnly = adminOnly });
-                        }
+                                if ((index = c.ChannelEvalCommands.FindIndex(x => x.Name == name)) != -1)
+                                    c.ChannelEvalCommands.RemoveAt(index);
+
+                                if (channelOnly)
+                                    c.ChannelEvalCommands.Add(new EvalCommand(bot, name, expression) { AdminOnly = adminOnly });
+                                else
+                                    bot.EvalCommands.Add(new EvalCommand(bot, name, expression) { AdminOnly = adminOnly });
+                            }
                     }
                 },
                 adminOnly: true));
@@ -2015,17 +2038,24 @@ namespace twitchbot
 
                     if (S.Length > 1)
                     {
-                        lock (bot.EvalCommands)
-                        {
-                            string name = S[1].ToLower();
-
-                            var command = bot.EvalCommands.FirstOrDefault(x => x.Name == name);
-                            if (command != null)
+                        lock (c.ChannelEvalCommands)
+                            lock (bot.EvalCommands)
                             {
-                                bot.EvalCommands.Remove(command);
-                                c.Say($"{u}, removed eval command \"{name}\"");
+                                string name = S[1].ToLower();
+
+                                var command = bot.EvalCommands.FirstOrDefault(x => x.Name == name);
+                                if (command != null)
+                                {
+                                    bot.EvalCommands.Remove(command);
+                                    c.Say($"{u}, removed eval command \"{name}\"");
+                                }
+                                command = c.ChannelEvalCommands.FirstOrDefault(x => x.Name == name);
+                                if (command != null)
+                                {
+                                    c.ChannelEvalCommands.Remove(command);
+                                    c.Say($"{u}, removed eval command \"{name}\"");
+                                }
                             }
-                        }
                     }
                 },
                 adminOnly: true));
@@ -2040,17 +2070,6 @@ namespace twitchbot
                 },
                 ownerOnly: true));
             #endregion
-
-
-            //#region save
-            //bot.Commands.Add(new Command(
-            //    "restart",
-            //    (m, u, c) =>
-            //    {
-            //        bot.Restart();
-            //    },
-            //    ownerOnly: true));
-            //#endregion
 
             #region api
             bot.Commands.Add(new Command(

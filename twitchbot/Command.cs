@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DynamicExpresso;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -36,6 +37,27 @@ namespace twitchbot
             OwnerOnly = ownerOnly;
             Cooldown = cooldown ?? new TimeSpan(0, 0, 2);
             HasUserCooldown = hasUserCooldown;
+        }
+    }
+
+    public class EvalCommand : Command
+    {
+        public string Expression { get; private set; }
+
+        public EvalCommand(Bot bot, string name, string expression)
+            : base(name, (m, u, c) =>
+            {
+                try
+                {
+                    object o = bot.Interpreter.Eval(expression, new Parameter("C", c), new Parameter("U", u), new Parameter("M", m), new Parameter("S", m.SplitWords()));
+
+                    if (o != null)
+                        c.Say(o.ToString());
+                }
+                catch (Exception exc) { c.Say(exc.Message); }
+            })
+        {
+            Expression = expression;
         }
     }
 }

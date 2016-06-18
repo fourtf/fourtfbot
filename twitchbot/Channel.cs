@@ -9,7 +9,9 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
+using static twitchbot.Bot;
 
 namespace twitchbot
 {
@@ -23,6 +25,27 @@ namespace twitchbot
         public ConcurrentQueue<Tuple<DateTime, string, string>> UserCommandCache { get; private set; } = new ConcurrentQueue<Tuple<DateTime, string, string>>();
 
         public ConcurrentDictionary<string, int> ModReffleValueAvailable { get; private set; } = new ConcurrentDictionary<string, int>();
+        public ConcurrentDictionary<string, DateTime> CommandDescriptionCooldown { get; private set; } = new ConcurrentDictionary<string, DateTime>();
+        public TimeSpan DefaultCommandDescriptionCooldown = TimeSpan.FromMinutes(1);
+
+        public bool CanPostCommandDescription(string command)
+        {
+            DateTime time;
+            if (CommandDescriptionCooldown.TryGetValue(command, out time))
+            {
+                if (time > DateTime.Now)
+                {
+                    return false;
+                }
+            }
+            CommandDescriptionCooldown[command] = DateTime.Now + DefaultCommandDescriptionCooldown;
+            return true;
+        }
+
+        public abstract string ChannelSaveID { get; }
+
+        public List<EvalCommand> ChannelEvalCommands = new List<EvalCommand>();
+
         public int Max { get; set; }
 
         public abstract string LongName { get; }
@@ -51,137 +74,52 @@ namespace twitchbot
             SayRaw(message, false);
         }
 
+        public Channel Wait(double time)
+        {
+            Thread.Sleep((int)(time * 1000));
+            return this;
+        }
+
         public abstract void Connect();
         public abstract void Disconnect();
 
-        public virtual void Save() { }
-        //{
-        //    try
-        //    {
-        //        var savePath = UserSavePath;
+        public virtual void Save()
+        {
+            File.WriteAllLines($"./db/{ChannelSaveID}.evalcommands.txt", ChannelEvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
+        }
 
-        //        using (Stream filestream = File.OpenWrite(savePath))
-        //        {
-        //            using (Stream stream = new GZipStream(filestream, CompressionMode.Compress))
-        //            {
-        //                stream.WriteByte(1);
-        //                bool first = true;
-        //                foreach (User u in UsersByName.Values)
-        //                {
-        //                    if (first)
-        //                        first = false;
-        //                    else
-        //                        stream.WriteByte(0);
+        public virtual void Load()
+        {
+            try
+            {
+                lock (ChannelEvalCommands)
+                {
+                    if (File.Exists($"./db/{ChannelSaveID}.evalcommands.txt"))
+                    {
+                        File.ReadAllLines($"./db/{ChannelSaveID}.evalcommands.txt").Do(line =>
+                        {
+                            try
+                            {
+                                int index;
+                                if ((index = line.IndexOf('=')) != -1)
+                                {
+                                    string name = line.Remove(index);
+                                    ChannelEvalCommands.Add(new EvalCommand(Bot, name.TrimStart('%'), line.Substring(index + 1)) { AdminOnly = name.IndexOf('%') != -1 });
+                                }
+                            }
+                            catch
+                            {
 
-        //                    stream.WriteString(u.Name);
-        //                    stream.WriteString(u.ID);
+                            }
+                        });
+                    }
+                }
+            }
+            catch
+            {
 
-        //                    if (u.Calories != 0) { stream.WriteByte(0x01); stream.WriteLong(u.Calories); }
-        //                    if (u.MessageCount != 0) { stream.WriteByte(0x02); stream.WriteLong(u.MessageCount); }
-        //                    if (u.CharacterCount != 0) { stream.WriteByte(0x03); stream.WriteLong(u.CharacterCount); }
-        //                    if (u.Points != 0) { stream.WriteByte(0x04); stream.WriteLong(u.Points); }
-
-        //                    if (u.Flags != 0) { stream.WriteByte(0x05); stream.WriteInt((int)u.Flags); }
-        //                    if (u.GachiGASM != 0) { stream.WriteByte(0x06); stream.WriteLong(u.GachiGASM); }
-
-        //                    if (u.Inventory != null)
-        //                    {
-        //                        lock (u.Inventory)
-        //                        {
-        //                            foreach (InventoryItem item in u.Inventory)
-        //                            {
-        //                                stream.WriteByte(0x10);
-        //                                stream.WriteString(item.Name);
-        //                                stream.WriteLong(item.Count);
-        //                            }
-        //                        }
-        //                    }
-        //                }
-        //                stream.WriteByte(0xFF);
-        //            }
-        //        }
-        //    }
-        //    catch { }
-        //}
-
-        public virtual void Load() { }
-        //{
-        //    try
-        //    {
-        //        var savePath = UserSavePath;
-
-        //        if (File.Exists(savePath))
-        //        {
-        //            try
-        //            {
-        //                using (Stream filestream = File.OpenRead(savePath))
-        //                {
-        //                    using (Stream stream = new GZipStream(filestream, CompressionMode.Decompress))
-        //                    {
-        //                        int b = stream.ReadByte();
-        //                        if (b != 0 && b != 1)
-        //                            throw new Exception();
-
-        //                        while (true)
-        //                        {
-        //                            User user = new User();
-        //                            user.Name = stream.ReadString();
-        //                            if (b == 0)
-        //                                user.ID = user.Name;
-        //                            else
-        //                                user.ID = stream.ReadString();
-
-        //                            while (true)
-        //                            {
-        //                                switch (stream.ReadByte())
-        //                                {
-        //                                    case 0:
-        //                                        UsersByID[user.ID] = user;
-        //                                        if (!UsersByName.ContainsKey(user.Name))
-        //                                            UsersByName[user.Name.ToLower()] = user;
-        //                                        goto end;
-        //                                    case 1:
-        //                                        user.Calories = stream.ReadLong();
-        //                                        break;
-        //                                    case 2:
-        //                                        user.MessageCount = stream.ReadLong();
-        //                                        break;
-        //                                    case 3:
-        //                                        user.CharacterCount = stream.ReadLong();
-        //                                        break;
-        //                                    case 4:
-        //                                        user.Points = stream.ReadLong();
-        //                                        break;
-        //                                    case 5:
-        //                                        user.Flags = (UserFlags)stream.ReadInt();
-        //                                        break;
-        //                                    case 6:
-        //                                        user.GachiGASM = stream.ReadLong();
-        //                                        break;
-        //                                    case 0x10:
-        //                                        user.AddItem(stream.ReadString(), stream.ReadLong());
-        //                                        break;
-        //                                    case 0xFF:
-        //                                        UsersByID[user.ID] = user;
-        //                                        if (!UsersByName.ContainsKey(user.Name))
-        //                                            UsersByName[user.Name.ToLower()] = user;
-        //                                        goto veryend;
-        //                                }
-        //                            }
-        //                            end:;
-        //                        }
-        //                        veryend:;
-        //                    }
-        //                }
-        //            }
-        //            catch
-        //            {
-
-        //            }
-        //        }
-        //    }
-        //    catch { }
-        //}
+            }
+        }
 
         public abstract void TryWhisperUser(User u, string message);
 
