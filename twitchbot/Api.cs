@@ -16,16 +16,18 @@ namespace twitchbot
         // API
         static string recipesCache = null;
         static string itemsCache = null;
+        static string commandsCache = null;
         static Cache itemCache = new Cache();
         public static TimeSpan CacheCooldown = TimeSpan.FromMinutes(0.1);
         public static TimeSpan CacheCooldownTop = TimeSpan.FromMinutes(1);
 
-        public static void StartApiServer(object parameter)
+        public static void StartApiServer(object obj)
         {
-            Channel c = (Channel)parameter;
+            Bot bot = ((Tuple<Bot, int>)obj).Item1;
+            Channel c = bot.TwitchChannels.First();
 
             IPAddress address = IPAddress.Parse("127.0.0.1");
-            TcpListener listener = new TcpListener(address, 5200);
+            TcpListener listener = new TcpListener(address, ((Tuple<Bot, int>)obj).Item2);
             listener.Start();
 
             while (true)
@@ -124,7 +126,7 @@ namespace twitchbot
                                 appendDataArray(builder, success = true, () =>
                                 {
                                     bool first = true;
-                                    foreach (var x in c.Bot.CommandUses.OrderBy(x => x.Value * -1).Take((int)topCount))
+                                    foreach (var x in bot.CommandUses.OrderBy(x => x.Value * -1).Take((int)topCount))
                                     {
                                         appendPair(builder, x.Key, x.Value, first);
                                         first = false;
@@ -188,6 +190,33 @@ namespace twitchbot
                                             if (!first)
                                                 builder.Append(',');
                                             appendString(builder, x);
+                                            first = false;
+                                        }
+                                    }
+                                });
+                                cache = itemsCache = builder.ToString();
+
+                            }
+                            else
+                            {
+                                cache = itemsCache;
+                            }
+                            success = true;
+                            #endregion
+                        }
+                        else if (S.TryIsString(1, "commands"))
+                        {
+                            #region
+                            if (itemsCache == null)
+                            {
+                                appendDataArray(builder, success = true, () =>
+                                {
+                                    bool first = true;
+                                    lock (ShopItem.Items)
+                                    {
+                                        foreach (var x in bot.Commands.Where(x => x.Description != null))
+                                        {
+                                            appendPair(builder, x.Name, x.Description, first);
                                             first = false;
                                         }
                                     }

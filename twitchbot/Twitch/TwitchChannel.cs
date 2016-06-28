@@ -8,6 +8,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -15,31 +16,57 @@ namespace twitchbot.Twitch
 {
     public class TwitchChannel : Channel
     {
-        public TwitchChannel(Bot bot, IrcClient irc, string channel)
+        public TwitchChannel(Bot bot, string channel)
             : base(bot)
         {
             ChannelName = channel;
 
-            Irc = irc;
             setMessageTimer(false);
 
             userUpdateTimer.Elapsed += userUpdateTick;
             userUpdateTimer.Enabled = true;
 
-            QueueAction(30, () => userUpdateTick(null, null));
+            Bot.QueueAction(30, () => userUpdateTick(null, null));
 
             messageLimitTimer.Elapsed += (s, e) => { messagecount = 0; };
         }
 
 
+        public void GiveEveryoneExceptSkyriseNowPointz(long pointz)
+        {
+            foreach (var t in UsersByID.Values)
+            {
+                if (t.Name != "skyrisenow")
+                    t.Points += pointz;
+            }
+        }
+
+        public void FixTokens()
+        {
+            foreach (var t in UsersByID.Values)
+            {
+                long count = t.ItemCount("slotmachine-token");
+                if (count != 0)
+                {
+                    t.RemoveItem("slotmachine-token", count);
+                    t.AddItem("token", count);
+                }
+            }
+        }
+
+
         // PROPERTIES
-        public IrcClient Irc { get; private set; }
+        //public IrcClient Irc { get; set; } = null;
         public string ChannelName { get; set; }
+
+        public EmoteClrServer EmoteClrServer { get; set; } = null;
 
         System.Timers.Timer userUpdateTimer = new System.Timers.Timer(5 * 1000 * 60);
         public override ChannelType Type { get { return ChannelType.Twitch; } }
 
         public bool IsMod { get; private set; } = true;
+
+        public ConcurrentDictionary<string, TwitchEmote> BttvChannelEmotes { get; private set; } = new ConcurrentDictionary<string, TwitchEmote>();
 
 
         // MESSAGES
@@ -69,7 +96,7 @@ namespace twitchbot.Twitch
                 return ChannelName + "'s chat";
             }
         }
-
+        
         public override string ChannelSaveID
         {
             get
@@ -94,7 +121,7 @@ namespace twitchbot.Twitch
             if (isMod != IsMod)
             {
                 IsMod = isMod;
-                messageTimer = new System.Timers.Timer(isMod ? 0.01 : 1.05);
+                messageTimer = new System.Timers.Timer(isMod ? 0.01 : 1.1);
                 messageTimer.Elapsed += (s, e) =>
                 {
                     lock (messageQueue)
@@ -108,7 +135,7 @@ namespace twitchbot.Twitch
 
                             messagecount++;
 
-                            Irc.SendMessage(SendType.Message, "#" + msg.Channel, msg.Text);
+                            Bot.TwitchIrc?.SendMessage(SendType.Message, "#" + msg.Channel, msg.Text);
 
                             break;
                         }
@@ -125,29 +152,30 @@ namespace twitchbot.Twitch
         // METHODS
         public override void Say(string message, bool slashMe, bool force)
         {
-            SayRaw((slashMe ? "/me " : ". ") + (message.Length < 360 ? message : message.Remove(357) + "..."), force);
+            SayRaw((slashMe ? "/me " : ". ") + message, force);
         }
 
         public override void TryWhisperUser(User u, string message)
         {
             if (Bot.EnableTwitchWhispers)
-                Irc.SendMessage(SendType.Message, "#jtv", $"/w {u} {message}");
+                Bot.TwitchIrc?.SendMessage(SendType.Message, "#jtv", $"/w {u} {message}");
             else
                 Say($"{u}, {message}");
         }
 
 
         DateTime lastMessage = DateTime.MinValue;
-        //Regex linkReplaceRegex = new Regex(@"(https?://[^\s\.]+)(\.[^\s]+)");
 
         public override void SayRaw(string message, bool force)
         {
-            if (IsForsens)
+            if (!Settings.EnableLinks)
             {
-                //message = linkReplaceRegex.Replace(message, "$1 $2", 1);
                 message = message.Replace(".", ". ");
                 message = message.Length > 193 ? message.Remove(190) + "..." : message;
             }
+
+            if (message.Length > Settings.MaxMessageLength)
+                message = message.Remove(Settings.MaxMessageLength - 3) + "...";
 
             lock (messageQueue)
             {
@@ -157,7 +185,7 @@ namespace twitchbot.Twitch
                     if (messagecount < (IsMod ? 50 : 10))
                     {
                         lastMessage = DateTime.Now;
-                        Irc.SendMessage(SendType.Message, "#" + ChannelName, message);
+                        Bot.TwitchIrc?.SendMessage(SendType.Message, "#" + ChannelName, message);
                         messageTimer.Enabled = true;
                     }
                 }
@@ -240,16 +268,66 @@ namespace twitchbot.Twitch
 
         public override void Connect()
         {
-            Irc.RfcJoin("#" + ChannelName);
+            new Task(() =>
+            {
+                try
+                {
+                    JsonParser parser = new JsonParser();
 
-            IsForsens = ChannelName == "forsenlol";
+                    var bttvChannelEmotesCache = "./db/twitch." + ChannelName + ".bttv_channel_emotes.json";
+
+                    if (!File.Exists(bttvChannelEmotesCache) || DateTime.Now - new FileInfo(bttvChannelEmotesCache).LastWriteTime > TimeSpan.FromHours(24))
+                    {
+                        try
+                        {
+                            if (Util.IsLinux)
+                            {
+                                Util.LinuxDownloadFile("https://api.betterttv.net/2/channels/" + ChannelName, bttvChannelEmotesCache);
+                            }
+                            else
+                            {
+                                using (var webClient = new WebClient())
+                                using (var readStream = webClient.OpenRead("https://api.betterttv.net/2/channels/" + ChannelName))
+                                using (var writeStream = File.OpenWrite(bttvChannelEmotesCache))
+                                {
+                                    readStream.CopyTo(writeStream);
+                                }
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            e.Message.Log("emotes");
+                        }
+                    }
+
+                    using (var stream = File.OpenRead(bttvChannelEmotesCache))
+                    {
+                        dynamic json = parser.Parse(stream);
+                        var template = "https:" + json["urlTemplate"]; //{{id}} {{image}}
+
+                        foreach (dynamic e in json["emotes"])
+                        {
+                            string id = e["id"];
+                            string code = e["code"];
+                            string imageType = e["imageType"];
+                            string url = template.Replace("{{id}}", id).Replace("{{image}}", "3x");
+
+                            BttvChannelEmotes[code] = new TwitchEmote { EmoteSet = -1, Height = 112, Width = 112, Name = code, Type = EmoteType.BttvChannel, Url = url, ImageFormat = imageType };
+                        }
+                    }
+
+                }
+                catch { }
+            }).Start();
+
+            Bot.TwitchIrc.RfcJoin("#" + ChannelName);
 
             messageLimitTimer.Start();
         }
 
         public override void Disconnect()
         {
-            Irc.RfcPart("#" + ChannelName);
+            Bot.TwitchIrc?.RfcPart("#" + ChannelName);
         }
 
         public override void Save()

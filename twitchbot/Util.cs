@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,13 +12,52 @@ namespace twitchbot
 {
     public static class Util
     {
+        // log in file
+        public static string LogBasePath { get; set; } = "./log/";
+        static bool checkedLogBase = false;
+
+        static ConcurrentDictionary<string, StreamWriter> logWriters = new ConcurrentDictionary<string, StreamWriter>();
+
+        public static void Log(string file, string format, params object[] args)
+        {
+            if (!checkedLogBase)
+            {
+                try
+                {
+                    if (!Directory.Exists(LogBasePath))
+                        Directory.CreateDirectory(LogBasePath);
+                }
+                catch { }
+                checkedLogBase = true;
+            }
+
+            var now = DateTime.Now;
+            var logFilename = Path.Combine(LogBasePath, file + "." + now.ToString("yyyy-MM") + ".txt");
+
+            try
+            {
+                var sw = logWriters.GetOrAdd(logFilename, name => File.AppendText(name));
+                sw.WriteLine(now.ToString("yyyy-MM-dd HH:mm:ss") + " " + string.Format(format, args).Replace("\n", "\n        "));
+                sw.Flush();
+            }
+            catch { }
+        }
+
+        public static T Log<T>(this T obj, string file, string format = "{0}")
+        {
+            Log(file, format, obj);
+
+            return obj;
+        }
+
+        // log in console
         public static T Log<T>(this T obj)
         {
             Log(obj, 0);
             return obj;
         }
 
-        public static void Log(this object obj, int intend)
+        private static void Log(this object obj, int intend)
         {
             if (obj == null)
             {
@@ -224,6 +266,37 @@ namespace twitchbot
             return value.Split(ws, StringSplitOptions.RemoveEmptyEntries);
         }
 
+        public static string SubstringFromWordIndex(this string s, int index)
+        {
+            int i = 0;
+
+            for (; i < s.Length; i++)
+            {
+                if (s[i] != ' ')
+                    break;
+            }
+
+            for (int j = 0; j < index; j++)
+            {
+                for (; i < s.Length; i++)
+                {
+                    if (s[i] == ' ')
+                        break;
+                }
+
+                for (; i < s.Length; i++)
+                {
+                    if (s[i] != ' ')
+                        break;
+                }
+            }
+
+            if (i < s.Length)
+                return s.Substring(i);
+
+            return null;
+        }
+
         public static bool IsLinux
         {
             get
@@ -231,6 +304,20 @@ namespace twitchbot
                 int p = (int)Environment.OSVersion.Platform;
                 return (p == 4) || (p == 6) || (p == 128);
             }
+        }
+
+        public static void LinuxDownloadFile(string url, string path)
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "wget",
+                    Arguments = $"-O {path} {url}"
+                }
+            };
+            process.Start();
+            process.WaitForExit();
         }
     }
 }

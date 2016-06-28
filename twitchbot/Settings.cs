@@ -9,9 +9,9 @@ using Map = System.Collections.Concurrent.ConcurrentDictionary<string, string>;
 
 namespace twitchbot
 {
-    public class Settings
+    public class IniSettings
     {
-        public Settings()
+        public IniSettings()
         {
 
         }
@@ -86,12 +86,34 @@ namespace twitchbot
         // Try get
         public bool TryGetString(string key, out string value) => map.TryGetValue(key, out value);
 
+        public bool TryGetBool(string key, out bool value)
+        {
+            string v;
+            if (map.TryGetValue(key, out v))
+            {
+                return value = (v.ToUpper() == "TRUE");
+            }
+            value = false;
+            return false;
+        }
+
         public bool TryGetInt(string key, out int value)
         {
             string v;
             if (map.TryGetValue(key, out v))
             {
                 return int.TryParse(v, out value);
+            }
+            value = 0;
+            return false;
+        }
+
+        public bool TryGetInt(string key, out double value)
+        {
+            string v;
+            if (map.TryGetValue(key, out v))
+            {
+                return double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
             }
             value = 0;
             return false;
@@ -150,6 +172,13 @@ namespace twitchbot
             return (map.TryGetValue(key, out value) ? value : map[key] = defaultValue);
         }
 
+        public bool GetBool(string key, bool defaultValue)
+        {
+            string value;
+
+            return (map.TryGetValue(key, out value) ? (value.ToUpper() == "TRUE") : defaultValue);
+        }
+
         public long GetLong(string key, long defaultValue)
         {
             long value;
@@ -171,6 +200,13 @@ namespace twitchbot
             return (int.TryParse(GetString(key, defaultValue.ToString()), out value) ? value : defaultValue);
         }
 
+        public double GetDouble(string key, double defaultValue)
+        {
+            double value;
+
+            return (double.TryParse(GetString(key, defaultValue.ToString()), NumberStyles.Float, CultureInfo.InvariantCulture, out value) ? value : defaultValue);
+        }
+
         public DateTime GetTime(string key, DateTime defaultValue)
         {
             DateTime value;
@@ -180,7 +216,9 @@ namespace twitchbot
 
         // Set values
         public void Set(string key, string value) => map[key] = value;
+        public void Set(string key, bool value) => map[key] = value.ToString();
         public void Set(string key, int value) => map[key] = value.ToString();
+        public void Set(string key, double value) => map[key] = value.ToString();
         public void Set(string key, long value) => map[key] = value.ToString();
         public void Set(string key, ulong value) => map[key] = value.ToString();
         public void Set(string key, DateTime value) => map[key] = value.ToString(DateTimeFormat);

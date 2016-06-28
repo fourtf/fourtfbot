@@ -15,6 +15,19 @@ namespace twitchbot
                 "and then licks it VapeNation",
             };
 
+        public static ShopItem PositivePoint = new ShopItem() { Name = "+" };
+        public static ShopItem NegativePoint = new ShopItem() { Name = "-" };
+
+        public bool IsNegativePoint
+        {
+            get { return Name == "-"; }
+        }
+
+        public bool IsPositivePoint
+        {
+            get { return Name == "+"; }
+        }
+
         // items
         private static ShopItem[] items = new ShopItem[]
         {
@@ -34,6 +47,7 @@ namespace twitchbot
                 }, },
             new ShopItem { Name = "cat", Emote = "CoolCat", Description = "You can be the cat lady of twich chat CoolCat", Calories = 1400, Price = 500, Edible = true, PetPhrases = new[] { "and it starts to purr CoolCat" } },
             //new ShopItem { Name = "fat-cat", Emote = "OpieOP", RecipeString = "100 cheeseburger a cat", Description = "Don't know if CoolCat or OpieOP", Calories = 40000, Price = 500, Edible = true },
+            new ShopItem { Name = "negative-cat", Emote = "CoolCat", Description = "Eating it will have negative effects on your stomach.", Calories = -10000, Price = -500, Edible = true },
 
             new ShopItem { Name = "dog", Emote = "FrankerZ", Description = "FrankerZ", Calories = 70000, Price = 5000, Edible = true, PetPhrases = new[] { "and it starts licking their face OhMyDog" } },
             new ShopItem { Name = "vaping-dog", RecipeString = "1 dog 1 vape", Emote = "FrankerZ", Description = "A dog with a vape stuck in one of his nostrils OhMyDog", Calories = 80000, Edible = true, PetPhrases = new[]
@@ -55,7 +69,10 @@ namespace twitchbot
                 } },
 
             new ShopItem { Name = "k-arl_k-ons", Emote = "VapeNation", Description = "A k-arl_k-ons in his natural habitat.", PetPhrases = new[] { "and he gives them a weird look." } },
-            new ShopItem { Name = "taser", Emote = "VapeNation", Description = "A taser.", PetPhrases = new[] { "and they got an electrical shock." } },
+            new ShopItem { Name = "taser", Emote = "WutFace", Description = "A taser.", PetPhrases = new[] { "and they got an electrical shock." } },
+            new ShopItem { Name = "pepperspray", Emote = "WutFace", Description = "Peppersprayy le mayo.", PetPhrases = new[] { "and they accidently sprayed themselve." } },
+            new ShopItem { Name = "slotmachine-token", Emote = "VisLaud", Description = "A token that can be used with the !slotmachine command VisLaud", PetPhrases = new[] { "and hopes that he will be lucky." } },
+            new ShopItem { Name = "token", Emote = "VisLaud", Price = 100, Description = "A token that can be used with the !slotmachine command VisLaud", PetPhrases = new[] { "and hopes that he will be lucky." } },
 
             // vape
             new ShopItem { Name = "vape", Emote = "VapeNation", Price = 1000, Description = "VapeNation \\//\\", PetPhrases = vapePhrases },

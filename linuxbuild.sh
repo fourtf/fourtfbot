@@ -10,5 +10,7 @@ cp -n ./packages/Nito.AsyncEx.3.0.1/lib/net45/Nito.AsyncEx.Concurrent.dll ./buil
 cp -n ./packages/RestSharp.105.2.3/lib/net45/RestSharp.dll ./build/RestSharp.dll
 cp -n ./packages/WebSocket4Net.0.14.1/lib/net45/WebSocket4Net.dll ./build/WebSocket4Net.dll
 cp -n ./packages/CommandLineParser.1.9.71/lib/net45/CommandLine.dll ./build/CommandLine.dll
+cp -n ./packages/System.Text.Json.2.0.0.11/lib/net40/System.Text.Json.dll ./build/System.Text.Json.dll
+cp -n ./packages/WebSocketSharp.1.0.3-rc10/lib/websocket-sharp.dll ./build/websocket-sharp.dll
 cp -n ./twitchbot/irc/Meebey.SmartIrc4net.dll ./build/Meebey.SmartIrc4net.dll
 cp -n ./twitchbot/irc/StarkSoftProxy.dll ./build/StarkSoftProxy.dll

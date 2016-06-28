@@ -16,6 +16,7 @@ namespace twitchbot
         public string ID { get; set; }
 
         public long Points { get; set; }
+        public long NegativePoints { get; set; }
 
         public long GachiGASM { get; set; }
 
@@ -115,6 +116,12 @@ namespace twitchbot
         public override string ToString()
         {
             return Name;
+        }
+
+        private int hash = 0;
+        public override int GetHashCode()
+        {
+            return hash == 0 ? (hash = ID.GetHashCode()) : hash;
         }
     }
 

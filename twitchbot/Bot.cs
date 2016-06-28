@@ -1,15 +1,17 @@
-﻿//using ChatSharp;
-using Discord;
+﻿using Discord;
 using DynamicExpresso;
 using Meebey.SmartIrc4net;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using twitchbot.Discord2;
@@ -26,46 +28,24 @@ namespace twitchbot
 
             Load();
 
+            BttvGlobalEmotes["xd"] = BttvGlobalEmotes["xD"] = new TwitchEmote { Url = "https://fourtf.com/img/xD.png" };
+
             Interpreter = new Interpreter();
             Interpreter.SetVariable("Bot", this, typeof(Bot));
-
-            TwitchIrc = new IrcClient();
-            TwitchIrc.AutoReconnect = true;
-            TwitchIrc.AutoRelogin = true;
-            TwitchIrc.AutoRejoin = true;
-            TwitchIrc.Encoding = new UTF8Encoding();
-
-            if (Program.Parameters.Verbose)
-            {
-                TwitchIrc.OnRawMessage += (s, e) =>
-                {
-                    Util.Log(e.Data.RawMessage);
-                };
-            }
-
-            TwitchIrc.OnError += (s, e) =>
-            {
-                try
-                {
-                    File.AppendAllText("ircerror", $"{DateTime.Now.ToLongTimeString()} {e.ErrorMessage} - {e.Data.From}: \"{e.Data.Message}\"");
-                }
-                catch
-                {
-
-                }
-            };
-
-            TwitchIrc.OnChannelMessage += (s, e) =>
-            {
-                OnTwitchChannelMessage(e.Data);
-            };
 
             saveTimer.Elapsed += (s, e) =>
             {
                 Save();
             };
             saveTimer.Start();
+            secondsTimer.Elapsed += onSecondTick;
+            secondsTimer.Start();
         }
+
+        private const string globalTwitchEmoteCachePath = "./db/twitch_global_emotes_cache.json";
+        private const string twitchemotesSubsCache = "./db/twitchemtotes_subs.json";
+        private const string twitchemotesGlobalCache = "./db/twitchemtotes_global.json";
+        private const string bttvEmotesGlobalCache = "./db/bttv_global.json";
 
 
         // USERS
@@ -89,6 +69,12 @@ namespace twitchbot
         public List<Song> GachiSongs = new List<Song>();
 
 
+        // TWITCH EMOTES
+        public ConcurrentDictionary<string, TwitchEmote> TwitchEmotes { get; private set; } = new ConcurrentDictionary<string, TwitchEmote>();
+        public ConcurrentDictionary<int, TwitchEmote> TwitchEmotesById { get; private set; } = new ConcurrentDictionary<int, TwitchEmote>();
+        public ConcurrentDictionary<string, TwitchEmote> BttvGlobalEmotes { get; private set; } = new ConcurrentDictionary<string, TwitchEmote>();
+
+
         // CHANNELS
         List<Channel> channels = new List<Channel>();
         List<TwitchChannel> twitchChannels = new List<TwitchChannel>();
@@ -98,8 +84,8 @@ namespace twitchbot
         // CONNECTION
         public event EventHandler<MessageEventArgs> ChannelMessageReceived;
 
-        public IrcClient TwitchIrc { get; private set; }
-        public DiscordClient DiscordClient { get; private set; }
+        public IrcClient TwitchIrc { get; private set; } = null;
+        public DiscordClient DiscordClient { get; private set; } = null;
 
         public string TwitchOwner { get; set; } = null;
         public string DiscordOwner { get; set; } = null;
@@ -111,7 +97,9 @@ namespace twitchbot
         public TimeSpan Uptime { get { return DateTime.Now - StartTime; } }
 
         System.Timers.Timer saveTimer = new System.Timers.Timer(1000 * 60 * 5);
-        /*System.Timers.Timer twitchPongTimer = new System.Timers.Timer(1000 * 60);*/
+        System.Timers.Timer twitchPingTimer = new System.Timers.Timer(1000 * 30);
+
+        bool receivedTwitchPong = false;
 
         public void ConnectDiscord(string email, string pass)
         {
@@ -141,60 +129,274 @@ namespace twitchbot
         {
             if (!connectedTwitch)
             {
+                //fetch emotes
+                new Task(() =>
+                {
+                    JsonParser parser = new JsonParser();
+
+                    // twitch.tv api
+                    /*if (!File.Exists(globalTwitchEmoteCachePath) || DateTime.Now - new FileInfo(globalTwitchEmoteCachePath).LastWriteTime > TimeSpan.FromHours(24))
+                    {
+                        try
+                        {
+                            using (var webClient = new WebClient())
+                            using (var readStream = webClient.OpenRead("https://api.twitch.tv/kraken/chat/emoticons"))
+                            using (var writeStream = File.OpenWrite(globalTwitchEmoteCachePath))
+                            {
+                                readStream.CopyTo(writeStream);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    JsonParser parser = new JsonParser();
+                    using (var stream = File.OpenRead(globalTwitchEmoteCachePath))
+                    {
+                        dynamic json = parser.Parse(stream);
+                        foreach (dynamic d in json["emoticons"])
+                        {
+                            string regex = d["regex"];
+                            dynamic image = d["images"][0];
+                            string url = image["url"];
+                            int emoticonSet = int.TryParse(image["emoticon_set"], out emoticonSet) ? emoticonSet : -1;
+                            int width = int.TryParse(image["width"], out width) ? width : 28;
+                            int height = int.TryParse(image["height"], out height) ? height : 28;
+
+                            TwitchEmotes[regex] = new TwitchEmote { Name = regex, Type = emoticonSet == -1 ? EmoteType.TwitchGlobal : EmoteType.TwitchSub, Height = height, Width = width, EmoteSet = emoticonSet, Url = url };
+                        }
+                    }*/
+
+                    // twitchemotes api global emotes
+                    if (!File.Exists(twitchemotesGlobalCache) || DateTime.Now - new FileInfo(twitchemotesGlobalCache).LastWriteTime > TimeSpan.FromHours(24))
+                    {
+                        try
+                        {
+                            if (Util.IsLinux)
+                            {
+                                Util.LinuxDownloadFile("https://twitchemotes.com/api_cache/v2/global.json", twitchemotesGlobalCache);
+                            }
+                            else
+                            {
+                                using (var webClient = new WebClient())
+                                using (var readStream = webClient.OpenRead("https://twitchemotes.com/api_cache/v2/global.json"))
+                                using (var writeStream = File.OpenWrite(twitchemotesGlobalCache))
+                                {
+                                    readStream.CopyTo(writeStream);
+                                }
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            e.Message.Log("emotes");
+                        }
+                    }
+
+                    using (var stream = File.OpenRead(twitchemotesGlobalCache))
+                    {
+                        dynamic json = parser.Parse(stream);
+                        dynamic templates = json["template"];
+                        string template112 = templates["large"];
+
+                        foreach (dynamic e in json["emotes"])
+                        {
+                            string code = e.Key;
+                            dynamic value = e.Value;
+                            string imageId = value["image_id"];
+                            int imageIdInt = int.Parse(imageId);
+                            string url = template112.Replace("{image_id}", imageId);
+
+                            TwitchEmotes[code] = new TwitchEmote { EmoteSet = -1, Height = -1, Width = -1, Name = code, Type = EmoteType.TwitchGlobal, Url = url };
+                            TwitchEmotesById[imageIdInt] = new TwitchEmote { EmoteSet = -1, Height = -1, Width = -1, Name = code, Type = EmoteType.TwitchGlobal, Url = url };
+                        }
+                    }
+
+                    // twitchemotes api sub emotes
+                    if (!File.Exists(twitchemotesSubsCache) || DateTime.Now - new FileInfo(twitchemotesSubsCache).LastWriteTime > TimeSpan.FromHours(24))
+                    {
+                        try
+                        {
+                            if (Util.IsLinux)
+                            {
+                                Util.LinuxDownloadFile("https://twitchemotes.com/api_cache/v2/subscriber.json", twitchemotesSubsCache);
+                            }
+                            else
+                            {
+                                using (var webClient = new WebClient())
+                                using (var readStream = webClient.OpenRead("https://twitchemotes.com/api_cache/v2/subscriber.json"))
+                                using (var writeStream = File.OpenWrite(twitchemotesSubsCache))
+                                {
+                                    readStream.CopyTo(writeStream);
+                                }
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            e.Message.Log("emotes");
+                        }
+                    }
+
+                    using (var stream = File.OpenRead(twitchemotesSubsCache))
+                    {
+                        dynamic json = parser.Parse(stream);
+                        dynamic templates = json["template"];
+                        string template112 = templates["large"];
+
+                        foreach (dynamic c in json["channels"].Values)
+                        {
+                            int set = int.Parse(c["set"]);
+
+                            foreach (dynamic e in c["emotes"])
+                            {
+                                string code = e["code"];
+                                string imageId = e["image_id"];
+                                string url = template112.Replace("{image_id}", imageId);
+
+                                TwitchEmotes[code] = new TwitchEmote { EmoteSet = set, Height = 112, Width = 112, Name = code, Type = EmoteType.TwitchSub, Url = url };
+                                TwitchEmotesById[int.Parse(imageId)] = new TwitchEmote { EmoteSet = set, Height = 112, Width = 112, Name = code, Type = EmoteType.TwitchSub, Url = url };
+                            }
+                        }
+                    }
+
+                    // better twitch tv emotes
+                    if (!File.Exists(bttvEmotesGlobalCache) || DateTime.Now - new FileInfo(bttvEmotesGlobalCache).LastWriteTime > TimeSpan.FromHours(24))
+                    {
+                        try
+                        {
+                            if (Util.IsLinux)
+                            {
+                                Util.LinuxDownloadFile("https://api.betterttv.net/2/emotes", bttvEmotesGlobalCache);
+                            }
+                            else
+                            {
+                                using (var webClient = new WebClient())
+                                using (var readStream = webClient.OpenRead("https://api.betterttv.net/2/emotes"))
+                                using (var writeStream = File.OpenWrite(bttvEmotesGlobalCache))
+                                {
+                                    readStream.CopyTo(writeStream);
+                                }
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            e.Message.Log("emotes");
+                        }
+                    }
+
+                    using (var stream = File.OpenRead(bttvEmotesGlobalCache))
+                    {
+                        dynamic json = parser.Parse(stream);
+                        var template = "https:" + json["urlTemplate"]; //{{id}} {{image}}
+
+                        foreach (dynamic e in json["emotes"])
+                        {
+                            string id = e["id"];
+                            string code = e["code"];
+                            string imageType = e["imageType"];
+                            string url = template.Replace("{{id}}", id).Replace("{{image}}", "3x");
+
+                            BttvGlobalEmotes[code] = new TwitchEmote { EmoteSet = -1, Height = 112, Width = 112, Name = code, Type = EmoteType.BttvChannel, Url = url, ImageFormat = imageType };
+                        }
+                    }
+                }).Start();
+
                 TwitchBotName = username;
 
-                try
+                void onRawMessage(object s, IrcEventArgs e)
                 {
-                    TwitchIrc.Connect("irc.twitch.tv", 6667);
-                }
-                catch (ConnectionException e)
-                {
-                    Console.WriteLine("couldn't connect! Reason: " + e.Message);
-                    return;
-                }
-
-                try
-                {
-                    TwitchIrc.Login(username, username, 0, username, "oauth:" + oauthPassword);
-                    connectedTwitch = true;
-
-                    TwitchIrc.WriteLine("CAP REQ :twitch.tv/commands");
-
-                    new Task(() =>
+                    if (e.Data.RawMessageArray.Length > 4 && e.Data.RawMessageArray[2] == "PRIVMSG")
                     {
-                        while (true)
+                        OnTwitchChannelMessage(e.Data);
+                    }
+                    if (Program.Parameters.Verbose)
+                        Util.Log(e.Data.RawMessage);
+
+                    if (e.Data.RawMessageArray.Length > 0 && e.Data.RawMessageArray[0] == "PONG")
+                    {
+                        "received PING".Log("irc");
+                        receivedTwitchPong = true;
+                    }
+                };
+
+                // connect irc
+                void connect()
+                {
+                    TwitchIrc = new IrcClient();
+                    TwitchIrc.Encoding = new UTF8Encoding();
+
+                    TwitchIrc.OnRawMessage += onRawMessage;
+
+                    try
+                    {
+                        "connecting to irc.twitch.tv".Log("irc");
+                        TwitchIrc.Connect("irc.twitch.tv", 6667);
+                    }
+                    catch (ConnectionException e)
+                    {
+                        $"ConnectionException: {e.Message}".Log("irc");
+                    }
+
+                    try
+                    {
+                        "logging in".Log("irc");
+                        TwitchIrc.Login(username, username, 0, username, "oauth:" + oauthPassword);
+
+                        TwitchIrc.WriteLine("CAP REQ :twitch.tv/commands");
+                        TwitchIrc.WriteLine("CAP REQ :twitch.tv/tags");
+
+                        new Task(() =>
                         {
-                            try
-                            {
-                                if (connectedTwitch)
-                                    TwitchIrc.Listen();
-                            }
-                            catch (Exception exc)
-                            {
-                                File.WriteAllText("error", exc.Message + "\r\n\r\n" + exc.StackTrace);
-                            }
+                            TwitchIrc.Listen();
+                        }).Start();
 
-                            Thread.Sleep(10000);
+                        foreach (var channel in TwitchChannels)
+                        {
+                            $"joining #{channel.ChannelName}".Log("irc");
+                            TwitchIrc.RfcJoin("#" + channel.ChannelName);
                         }
-                    }).Start();
-                }
-                catch (ConnectionException)
-                {
-                    return;
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine("Error occurred! Message: " + e.Message);
-                    Console.WriteLine("Exception: " + e.StackTrace);
-                    return;
-                }
-            }
-        }
 
-        public void DisconnectTwitch()
-        {
-            connectedTwitch = false;
-            TwitchIrc.Disconnect();
+                        connectedTwitch = true;
+                    }
+                    catch (ConnectionException e)
+                    {
+                        $"ConnectionException_2: {e.Message}".Log("irc");
+                        return;
+                    }
+                    catch (Exception e)
+                    {
+                        $"Exception: {e.Message}".Log("irc");
+                        return;
+                    }
+                };
+
+                connect();
+
+                twitchPingTimer.Elapsed += (s, e) =>
+                {
+                    if (connectedTwitch)
+                    {
+                        receivedTwitchPong = false;
+                        "sent PING".Log("irc");
+                        TwitchIrc.WriteLine("PING");
+
+                        QueueAction(15, () =>
+                        {
+                            if (!receivedTwitchPong)
+                            {
+                                "disconnected from irc.twitch.tv".Log("irc");
+                                TwitchIrc.OnRawMessage -= onRawMessage;
+                                connectedTwitch = false;
+                                connect();
+                            }
+                        });
+                    }
+                    else
+                    {
+                        "not connected to irc.twitch.tv".Log("irc");
+                    }
+                };
+
+                twitchPingTimer.Start();
+            }
         }
 
         void OnTwitchChannelMessage(IrcMessageData data)
@@ -214,13 +416,57 @@ namespace twitchbot
                 if (C == null)
                     return;
 
-
                 string user = data.Nick.ToLower();
 
                 string message = data.Message;
 
                 User u = C.GetOrCreateUser(user, user);
+                if (data.Tags.ContainsKey("emotes"))
+                    u.Name = data.Tags["display-name"];
 
+                // emotes
+                if (C.EmoteClrServer != null)
+                {
+                    int firstOccurence = -1;
+                    TwitchEmote emote = null;
+
+                    if (data.Tags.ContainsKey("emotes") && !string.IsNullOrWhiteSpace(data.Tags["emotes"]))
+                    {
+                        try
+                        {
+                            // 80481:0-4,6-10,12-16,18-22/93064:24-30
+
+                            string[] emotes = data.Tags["emotes"].Split('/');
+                            string firstEmote = emotes[0];
+                            int index = firstEmote.IndexOf(':');
+                            string id = firstEmote.Remove(index);
+
+                            firstOccurence = int.Parse(firstEmote.Substring(index + 1).Split(',')[0].Split('-')[0]);
+
+                            TwitchEmotesById.TryGetValue(int.Parse(id), out emote);
+                        }
+                        catch { }
+                    }
+
+                    if (emote == null)
+                    {
+                        string[] S = message.SplitWords();
+                        BttvGlobalEmotes.TryGetValue(S.FirstOrDefault(x => BttvGlobalEmotes.ContainsKey(x)) ?? "", out emote);
+                    }
+
+                    if (emote == null)
+                    {
+                        string[] S = message.SplitWords();
+                        C.BttvChannelEmotes.TryGetValue(S.FirstOrDefault(x => C.BttvChannelEmotes.ContainsKey(x)) ?? "", out emote);
+                    }
+
+                    if (emote != null)
+                    {
+                        C.EmoteClrServer.SendEmote(emote.Url);
+                    }
+                }
+
+                // process commands
                 C.TriggerMessageReceived(new MessageEventArgs(C, u, u.Name, message));
             }
             catch (Exception exc)
@@ -250,6 +496,39 @@ namespace twitchbot
         public string TwitchBotName { get; private set; }
 
 
+        // ACTION QUEUE
+        public List<Tuple<DateTime, Action>> DelayedActions { get; set; } = new List<Tuple<DateTime, Action>>();
+
+        protected System.Timers.Timer secondsTimer = new System.Timers.Timer(1000);
+
+        public void QueueAction(double seconds, Action action)
+        {
+            lock (DelayedActions)
+            {
+                DelayedActions.Add(Tuple.Create(DateTime.Now + TimeSpan.FromSeconds(seconds), action));
+            }
+        }
+
+        protected void onSecondTick(object sender, EventArgs e)
+        {
+            var now = DateTime.Now;
+
+            lock (DelayedActions)
+            {
+                for (int i = 0; i < DelayedActions.Count; i++)
+                {
+                    var item = DelayedActions[i];
+                    if (item.Item1 < now)
+                    {
+                        item.Item2();
+                        DelayedActions.RemoveAt(i);
+                        i--;
+                    }
+                }
+            }
+        }
+
+        // CHANNELS
         public IEnumerable<Channel> Channels
         {
             get
@@ -266,13 +545,45 @@ namespace twitchbot
             }
         }
 
+        public IEnumerable<TwitchChannel> TwitchChannels
+        {
+            get
+            {
+                List<TwitchChannel> C;
+                lock (channels)
+                {
+                    C = new List<TwitchChannel>(twitchChannels);
+                }
+                foreach (var c in C)
+                {
+                    yield return c;
+                }
+            }
+        }
+
+        public IEnumerable<DiscordChannel> DiscordChannels
+        {
+            get
+            {
+                List<DiscordChannel> C;
+                lock (channels)
+                {
+                    C = new List<DiscordChannel>(discordChannels);
+                }
+                foreach (var c in C)
+                {
+                    yield return c;
+                }
+            }
+        }
+
         public Channel AddChannel(ChannelType type, string channel)
         {
             switch (type)
             {
                 case ChannelType.Twitch:
                     {
-                        TwitchChannel c = new TwitchChannel(this, TwitchIrc, channel);
+                        TwitchChannel c = new TwitchChannel(this, channel);
                         c.MessageReceived += onChannelMessageReceived;
                         lock (channels)
                             channels.Add(c);
@@ -350,7 +661,7 @@ namespace twitchbot
             bool isMod = u.IsMod;
 
             if (!u.IsBanned && message.Length > 2)
-                if (message[0] == '!')
+                if (C.Settings.EnableCommands && message[0] == '!')
                 {
                     string _command = null;
 
@@ -391,7 +702,7 @@ namespace twitchbot
                                     if (C.IsOwner(u))
                                     {
                                         c.Action(message, u, C);
-                                        File.AppendAllText("modlogs", $"{DateTime.Now:yyyy-MM-dd hh:mm:ss} {u.Name} {message}\n");
+                                        $"{u.Name} {message}".Log("mods");
                                     }
                                 }
                                 else if (c.AdminOnly)
@@ -399,7 +710,7 @@ namespace twitchbot
                                     if (isAdmin)
                                     {
                                         c.Action(message, u, C);
-                                        File.AppendAllText("modlogs", $"{DateTime.Now:yyyy-MM-dd hh:mm:ss} {u.Name} {message}\n");
+                                        $"{u.Name} {message}".Log("mods");
                                     }
                                 }
                                 else if (c.ModOnly)
@@ -407,7 +718,7 @@ namespace twitchbot
                                     if (isMod || isAdmin)
                                     {
                                         c.Action(message, u, C);
-                                        File.AppendAllText("modlogs", $"{DateTime.Now:yyyy-MM-dd hh:mm:ss} {u.Name} {message}\n");
+                                        $"{u.Name} {message}".Log("mods");
                                     }
                                 }
                                 else
@@ -611,9 +922,9 @@ namespace twitchbot
                                                 goto veryend;
                                         }
                                     }
-                                    end:;
+                                end:;
                                 }
-                                veryend:;
+                            veryend:;
                             }
                         }
                     }

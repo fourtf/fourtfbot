@@ -17,11 +17,12 @@ namespace twitchbot
 {
     public abstract class Channel
     {
+        public ChannelSettings Settings { get; private set; } = new ChannelSettings();
+
         public abstract ConcurrentDictionary<string, User> UsersByName { get; }
         public abstract ConcurrentDictionary<string, User> UsersByID { get; }
 
         public Bot Bot { get; private set; }
-        public List<Tuple<DateTime, Action>> DelayedActions { get; set; } = new List<Tuple<DateTime, Action>>();
         public ConcurrentQueue<Tuple<DateTime, string, string>> UserCommandCache { get; private set; } = new ConcurrentQueue<Tuple<DateTime, string, string>>();
 
         public ConcurrentDictionary<string, int> ModReffleValueAvailable { get; private set; } = new ConcurrentDictionary<string, int>();
@@ -57,8 +58,6 @@ namespace twitchbot
         public abstract void Say(string message, bool slashMe, bool force);
         public abstract void SayRaw(string message, bool force);
 
-        public bool IsForsens { get; set; }
-
         public void Say(string message)
         {
             Say(message, false, false);
@@ -86,6 +85,7 @@ namespace twitchbot
         public virtual void Save()
         {
             File.WriteAllLines($"./db/{ChannelSaveID}.evalcommands.txt", ChannelEvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
+            Settings.Save($"./db/{ChannelSaveID}.settings.ini");
         }
 
         public virtual void Load()
@@ -119,17 +119,10 @@ namespace twitchbot
             {
 
             }
+            Settings.Load($"./db/{ChannelSaveID}.settings.ini");
         }
 
         public abstract void TryWhisperUser(User u, string message);
-
-        public void Say10(string message)
-        {
-            for (int i = 0; i < 10; i++)
-            {
-                Say(message);
-            }
-        }
 
         public event EventHandler<MessageEventArgs> MessageReceived;
 
@@ -194,6 +187,12 @@ namespace twitchbot
 
         public bool RaffleActive { get; set; } = false;
 
+        // VOTES
+        public ConcurrentDictionary<User, string> VoteUsers { get; } = new ConcurrentDictionary<User, string>();
+
+        public bool VoteActive { get; set; } = false;
+        public string[] CurrentVoteEmotes = new string[0];
+
         // TRADES
         public TimeSpan TradeTimeout { get; set; } = TimeSpan.FromMinutes(30);
 
@@ -241,29 +240,6 @@ namespace twitchbot
                     else
                         break;
                 }
-            }
-
-            lock (DelayedActions)
-            {
-                for (int i = 0; i < DelayedActions.Count; i++)
-                {
-                    var item = DelayedActions[i];
-                    if (item.Item1 < now)
-                    {
-                        item.Item2();
-                        DelayedActions.RemoveAt(i);
-                        i--;
-                    }
-                }
-            }
-        }
-
-        // query an action to be executes soon
-        public void QueueAction(double seconds, Action action)
-        {
-            lock (DelayedActions)
-            {
-                DelayedActions.Add(Tuple.Create(DateTime.Now + TimeSpan.FromSeconds(seconds), action));
             }
         }
     }
