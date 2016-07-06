@@ -58,10 +58,11 @@ namespace twitchbot
         public abstract void Say(string message, bool slashMe, bool force);
         public abstract void SayRaw(string message, bool force);
 
-        public PyramideType PyramideType { get; set; } = PyramideType.None;
-        public int PyramideWidth { get; set; } = 0;
-        public int PyramideHeight { get; set; }
-        public TwitchEmote PyramideEmote { get; set; }
+        public PyramidType PyramidType { get; set; } = PyramidType.None;
+        public int PyramidWidth { get; set; } = 0;
+        public int PyramidTempValue { get; set; } = 0;
+        public int PyramidHeight { get; set; }
+        public TwitchEmote PyramidEmote { get; set; }
 
 
         public void Say(string message)
@@ -90,7 +91,7 @@ namespace twitchbot
 
         public virtual void Save()
         {
-            File.WriteAllLines($"./db/{ChannelSaveID}.evalcommands.txt", ChannelEvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
+            File.WriteAllLines($"./db/{ChannelSaveID}.evalcommands.txt", ChannelEvalCommands.Select(c => (c.AdminOnly ? "%" : "") + (c.IgnoreExceptions ? "!" : "") + c.Name + "=" + c.Expression));
             Settings.Save($"./db/{ChannelSaveID}.settings.ini");
             lock (BetEntries)
             {
@@ -126,7 +127,7 @@ namespace twitchbot
                                 if ((index = line.IndexOf('=')) != -1)
                                 {
                                     string name = line.Remove(index);
-                                    ChannelEvalCommands.Add(new EvalCommand(Bot, name.TrimStart('%'), line.Substring(index + 1)) { AdminOnly = name.IndexOf('%') != -1 });
+                                    ChannelEvalCommands.Add(new EvalCommand(Bot, name.TrimStart('%', '!'), line.Substring(index + 1), name.IndexOf('!') != -1) { AdminOnly = name.IndexOf('%') != -1 });
                                 }
                             }
                             catch

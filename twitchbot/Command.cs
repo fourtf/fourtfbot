@@ -43,20 +43,22 @@ namespace twitchbot
     public class EvalCommand : Command
     {
         public string Expression { get; private set; }
+        public bool IgnoreExceptions { get; private set; }
 
-        public EvalCommand(Bot bot, string name, string expression)
+        public EvalCommand(Bot bot, string name, string expression, bool ignoreExceptions)
             : base(name, (m, u, c) =>
             {
                 try
                 {
                     object o = bot.Interpreter.Eval(expression, new Parameter("C", c), new Parameter("U", u), new Parameter("M", m), new Parameter("S", m.SplitWords()));
-
+                    
                     if (o != null)
                         c.Say(o.ToString());
                 }
-                catch (Exception exc) { c.Say(exc.Message); }
+                catch (Exception exc) { if (!ignoreExceptions) c.Say(exc.Message); }
             })
         {
+            IgnoreExceptions = ignoreExceptions;
             Expression = expression;
         }
     }

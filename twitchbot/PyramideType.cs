@@ -6,11 +6,17 @@ using System.Threading.Tasks;
 
 namespace twitchbot
 {
-    public enum PyramideType
+    public enum PyramidType
     {
         None,
         SingleEmote,
+        MultipleEmotes,
         Hammer,
         E,
+        Box,
+        PyramidInceasing,
+        PyramidDecreasing,
+        InvertedPyramidInceasing,
+        InvertedPyramidDecreasing,
     }
 }

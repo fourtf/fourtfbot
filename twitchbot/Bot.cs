@@ -28,7 +28,7 @@ namespace twitchbot
 
             Load();
 
-            BttvGlobalEmotes["xd"] = BttvGlobalEmotes["xD"] = new TwitchEmote { Url = "https://fourtf.com/img/xD.png" };
+            BttvGlobalEmotes["xd"] = BttvGlobalEmotes["xD"] = new TwitchEmote { Url = "https://fourtf.com/img/xD.png", Name = "xD" };
 
             Interpreter = new Interpreter();
             Interpreter.SetVariable("Bot", this, typeof(Bot));
@@ -483,82 +483,214 @@ namespace twitchbot
 
                     if (C.Settings.EnablePyramids && allSameEmotes && S.Length == emoteCount)
                     {
-                        if (emote != C.PyramideEmote)
+                        if (emote != C.PyramidEmote)
                         {
-                            C.PyramideType = PyramideType.None;
+                            C.PyramidType = PyramidType.None;
                         }
-                        C.PyramideEmote = emote;
+                        C.PyramidEmote = emote;
 
                         start:
 
-                        switch (C.PyramideType)
+                        switch (C.PyramidType)
                         {
-                            case PyramideType.None:
-                                C.PyramideHeight = 1;
-                                if (S.Length == 1)
+                            case PyramidType.None:
+                                C.PyramidHeight = 1;
+                                if (S.Length == 1) // hammer or pyramid
                                 {
-                                    C.PyramideType = PyramideType.SingleEmote;
+                                    C.PyramidType = PyramidType.SingleEmote;
                                 }
-                                else
+                                else if (S.Length >= 3) // E, box or inverse pyramid
                                 {
-                                    C.PyramideType = PyramideType.E;
-                                    C.PyramideWidth = S.Length;
+                                    C.PyramidType = PyramidType.MultipleEmotes;
+                                    C.PyramidWidth = S.Length;
                                 }
                                 break;
-                            case PyramideType.SingleEmote:
-                                if (S.Length > 3)
+                            case PyramidType.SingleEmote:
+                                if (S.Length >= 3) // hammer
                                 {
-                                    C.PyramideType = PyramideType.Hammer;
-                                    C.PyramideWidth = S.Length;
+                                    C.PyramidType = PyramidType.Hammer;
+                                    C.PyramidWidth = S.Length;
+                                }
+                                else if (S.Length == 2) // pyramide
+                                {
+                                    C.PyramidType = PyramidType.PyramidInceasing;
+                                    C.PyramidWidth = 2;
                                 }
                                 else
                                 {
-                                    C.PyramideType = PyramideType.None;
+                                    C.PyramidType = PyramidType.None;
                                     goto start;
                                 }
                                 break;
-                            case PyramideType.Hammer:
-                                if (S.Length == 1)
+                            case PyramidType.MultipleEmotes:
+                                if (S.Length == C.PyramidWidth) // box
                                 {
-                                    C.SayMe($"Congratulation {u}, you finished a {C.PyramideWidth} width and {C.PyramideHeight} height {emote.Name} {(u.ID == "swiftapples" || !C.Settings.EnableGachi ? "hammer" : "dick")} PogChamp");
-                                    C.PyramideType = PyramideType.None;
+                                    C.PyramidType = PyramidType.Box;
                                 }
-                                else
+                                else if (S.Length == 1) // E
                                 {
-                                    if (C.PyramideWidth != S.Length)
-                                        C.PyramideType = PyramideType.None;
+                                    C.PyramidType = PyramidType.E;
+                                    C.PyramidTempValue = -1;
+                                }
+                                else if (S.Length == C.PyramidWidth - 1)
+                                {
+                                    C.PyramidType = PyramidType.InvertedPyramidDecreasing;
+                                    C.PyramidTempValue = S.Length;
                                 }
                                 break;
-                            case PyramideType.E:
-                                if (C.PyramideHeight == 2 || C.PyramideHeight == 4)
+
+                            case PyramidType.InvertedPyramidDecreasing:
+                                if (S.Length == C.PyramidTempValue - 1)
                                 {
-                                    if (S.Length != 1)
+                                    C.PyramidTempValue--;
+                                    if (S.Length == 1)
                                     {
-                                        C.PyramideType = PyramideType.None;
+                                        C.PyramidType = PyramidType.InvertedPyramidInceasing;
                                     }
                                 }
                                 else
                                 {
+                                    C.PyramidType = PyramidType.None;
+                                    goto start;
+                                }
+                                break;
+                            case PyramidType.InvertedPyramidInceasing:
+                                if (S.Length == C.PyramidTempValue + 1)
+                                {
+                                    C.PyramidTempValue++;
+                                    if (S.Length == C.PyramidWidth)
                                     {
-                                        if (C.PyramideHeight == 5)
+                                        C.PyramidType = PyramidType.None;
+                                        C.SayMe($"Congratulation {u}, you finished a {C.PyramidWidth}-width inverted {C.PyramidEmote.Name}-pyramid PogChamp");
+                                    }
+                                }
+                                else
+                                {
+                                    C.PyramidType = PyramidType.None;
+                                    goto start;
+                                }
+                                break;
+
+                            case PyramidType.PyramidInceasing:
+                                if (S.Length == C.PyramidWidth + 1)
+                                {
+                                    C.PyramidWidth++;
+                                }
+                                else if (S.Length == C.PyramidWidth - 1)
+                                {
+                                    if (S.Length < 2)
+                                    {
+                                        C.PyramidType = PyramidType.None;
+                                    }
+                                    else
+                                    {
+                                        C.PyramidType = PyramidType.PyramidDecreasing;
+                                        C.PyramidTempValue = S.Length;
+                                    }
+                                }
+                                else
+                                {
+                                    C.PyramidType = PyramidType.None;
+                                    goto start;
+                                }
+                                break;
+                            case PyramidType.PyramidDecreasing:
+                                if (S.Length == C.PyramidTempValue - 1)
+                                {
+                                    if (S.Length == 1)
+                                    {
+                                        //C.SayMe($"Congratulation {u}, you finished a {C.PyramideWidth}-width {C.PyramideEmote.Name}-pyramid PogChamp");
+                                        C.PyramidType = PyramidType.None;
+                                    }
+                                    else
+                                    {
+                                        C.PyramidTempValue--;
+                                    }
+                                }
+                                else
+                                {
+                                    C.PyramidType = PyramidType.None;
+                                    goto start;
+                                }
+                                break;
+
+                            case PyramidType.Box:
+                                if (S.Length == C.PyramidWidth)
+                                {
+                                    if (C.PyramidHeight == S.Length)
+                                    {
+                                        C.SayMe($"Congratulation {u}, you finished a {C.PyramidWidth}-width {C.PyramidEmote.Name}-box PogChamp");
+                                        C.PyramidType = PyramidType.None;
+                                    }
+                                }
+                                else
+                                {
+                                    C.PyramidType = PyramidType.None;
+                                    goto start;
+                                }
+                                break;
+                            case PyramidType.Hammer:
+                                if (S.Length == 1)
+                                {
+                                    C.SayMe($"Congratulation {u}, you finished a {C.PyramidWidth}-width, {C.PyramidHeight}-height {C.PyramidEmote.Name}-{(u.ID == "swiftapples" || !C.Settings.EnableGachi ? "hammer" : "dick")} PogChamp");
+                                    C.PyramidType = PyramidType.None;
+                                }
+                                else
+                                {
+                                    if (C.PyramidWidth != S.Length)
+                                        C.PyramidType = PyramidType.None;
+                                }
+                                break;
+                            case PyramidType.E:
+                                if (C.PyramidTempValue == -1)
+                                {
+                                    if (S.Length == 1)
+                                    {
+
+                                    }
+                                    else if (S.Length == C.PyramidWidth || S.Length == C.PyramidWidth - 1)
+                                    {
+                                        C.PyramidTempValue = C.PyramidHeight - 2;
+                                    }
+                                    else
+                                    {
+                                        C.PyramidType = PyramidType.None;
+                                        goto start;
+                                    }
+                                }
+                                else
+                                {
+                                    if (C.PyramidTempValue > 0)
+                                    {
+                                        if (S.Length != 1)
                                         {
-                                            C.SayMe($"Congratulations {u}, you finished a {C.PyramideWidth} width {emote.Name} \"E\" PogChamp");
-                                            C.PyramideType = PyramideType.None;
+                                            C.PyramidType = PyramidType.None;
+                                            goto start;
                                         }
                                     }
                                     else
                                     {
-                                        C.PyramideType = PyramideType.None;
+                                        if (S.Length == C.PyramidWidth)
+                                        {
+                                            C.SayMe($"Congratulations {u}, you finished a {C.PyramidWidth}-width, {C.PyramidHeight}-height {C.PyramidEmote.Name}-\"E\" PogChamp");
+                                            C.PyramidType = PyramidType.None;
+                                        }
+                                        else
+                                        {
+                                            C.PyramidType = PyramidType.None;
+                                            goto start;
+                                        }
                                     }
+
+                                    C.PyramidTempValue--;
                                 }
                                 break;
                         }
-
-                        C.PyramideHeight++;
+                        C.PyramidHeight++;
                     }
                     else
                     {
-                        C.PyramideType = PyramideType.None;
+                        C.PyramidType = PyramidType.None;
                     }
 
                     if (emote != null)
@@ -628,6 +760,7 @@ namespace twitchbot
                 }
             }
         }
+
 
         // CHANNELS
         public IEnumerable<Channel> Channels
@@ -902,7 +1035,7 @@ namespace twitchbot
                                 if ((index = line.IndexOf('=')) != -1)
                                 {
                                     string name = line.Remove(index);
-                                    EvalCommands.Add(new EvalCommand(this, name.TrimStart('%'), line.Substring(index + 1)) { AdminOnly = name.IndexOf('%') != -1 });
+                                    EvalCommands.Add(new EvalCommand(this, name.TrimStart('%', '!'), line.Substring(index + 1), name.IndexOf('!') != -1) { AdminOnly = name.IndexOf('%') != -1 });
                                 }
                             }
                             catch
@@ -1062,7 +1195,7 @@ namespace twitchbot
             File.WriteAllLines("./db/aliases.txt", CommandAliases.Select(k => k.Key + "=" + k.Value));
             File.WriteAllLines("./db/stats.txt", CommandUses.Select(k => k.Key + "=" + k.Value));
 
-            File.WriteAllLines("./db/evalcommands.txt", EvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
+            File.WriteAllLines("./db/evalcommands.txt", EvalCommands.Select(c => (c.AdminOnly ? "%" : "") + (c.IgnoreExceptions ? "!" : "") + c.Name + "=" + c.Expression));
             //w.Stop();
             //Say("#pajlada", $"Saved in {w.Elapsed.TotalSeconds:0.000} seconds.");
 

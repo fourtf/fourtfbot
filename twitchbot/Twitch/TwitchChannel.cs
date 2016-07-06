@@ -32,29 +32,6 @@ namespace twitchbot.Twitch
         }
 
 
-        public void GiveEveryoneExceptSkyriseNowPointz(long pointz)
-        {
-            foreach (var t in UsersByID.Values)
-            {
-                if (t.Name != "skyrisenow")
-                    t.Points += pointz;
-            }
-        }
-
-        public void FixTokens()
-        {
-            foreach (var t in UsersByID.Values)
-            {
-                long count = t.ItemCount("slotmachine-token");
-                if (count != 0)
-                {
-                    t.RemoveItem("slotmachine-token", count);
-                    t.AddItem("token", count);
-                }
-            }
-        }
-
-
         // PROPERTIES
         //public IrcClient Irc { get; set; } = null;
         public string ChannelName { get; set; }
@@ -70,7 +47,7 @@ namespace twitchbot.Twitch
 
 
         // MESSAGES
-        System.Timers.Timer messageTimer;
+        System.Timers.Timer messageTimer = null;
         public TimeSpan MessageTimeout { get; set; } = TimeSpan.FromSeconds(7);
 
         public override ConcurrentDictionary<string, User> UsersByName
@@ -121,11 +98,16 @@ namespace twitchbot.Twitch
             if (isMod != IsMod)
             {
                 IsMod = isMod;
-                messageTimer = new System.Timers.Timer(isMod ? 0.01 : 1.1);
+                messageTimer?.Stop();
+                messageTimer?.Dispose();
+
+                messageTimer = new System.Timers.Timer(isMod ? 100 : 1100);
                 messageTimer.Elapsed += (s, e) =>
                 {
+                    Console.WriteLine($"{IsMod} {messagecount} {Util.GetRandom(1, 123)}");
                     if (messagecount < (IsMod ? 40 : 10))
                     {
+                        Console.WriteLine("say");
                         lock (messageQueue)
                         {
                             while (messageQueue.Count > 0)
@@ -142,7 +124,8 @@ namespace twitchbot.Twitch
                                 break;
                             }
 
-                            messageTimer.Enabled = messageQueue.Count > 0;
+                            if (messageQueue.Count == 0 && messageTimer.Enabled)
+                                messageTimer.Stop();
                         }
                     }
                 };

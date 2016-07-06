@@ -1426,7 +1426,6 @@ namespace twitchbot
             "bet",
             (m, u, c) =>
             {
-                int i = 0;
                 List<Tuple<ShopItem, long>> betItems = new List<Tuple<ShopItem, long>>();
 
                 Tuple<int, int> result = null;
@@ -2116,7 +2115,7 @@ namespace twitchbot
                     var group = Regex.Match(m, @"^[^\s]+\s+[^\s]+\s+[^\s]+(\s+(?<emote>.+))?$").Groups["emote"];
 
                     string fastEmote = null;
-                    double time = 45;
+                    double time = 60;
                     if (S.Contains("fast"))
                     {
                         fastEmote = "Volcania";
@@ -2126,6 +2125,14 @@ namespace twitchbot
                     c.SayMe($"A reffle for {item.GetNumber(count)} started. Type {fastEmote ?? (group.Success ? group.Value : item?.Emote ?? "Kappa")} / to join it. The reffle will end in {time} seconds.");
 
                     c.RaffleActive = true;
+
+                    if (time >= 40)
+                    {
+                        c.Bot.QueueAction(time / 2, () =>
+                        {
+                            c.SayMe($"The reffle for {item.GetNumber(count)} will end in {time / 2:0} seconds. Type {fastEmote ?? (group.Success ? group.Value : item?.Emote ?? "Kappa")} / to join.");
+                        });
+                    }
 
                     c.Bot.QueueAction(time, () =>
                     {
@@ -2137,7 +2144,9 @@ namespace twitchbot
                             List<User> potentialWinners = new List<User>(c.RaffleUsers.Values);
                             List<User> winners = new List<User>();
 
-                            int winnerCount = Math.Min((userCount / 8) + 1, 3);
+                            int maxWinnerCount = count == 1 ? 1 : (count == 2 ? 2 : 3);
+
+                            int winnerCount = Math.Min((userCount / 8) + 1, maxWinnerCount);
 
                             for (int i = 0; i < winnerCount; i++)
                             {
@@ -2150,13 +2159,13 @@ namespace twitchbot
 
                             if (item == null)
                             {
-                                c.SayMe($"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {count} {(winners.Count() > 1 ? "each " : "")}pointz FeelsGoodMan");
-                                winners.Do(winner => winner.Points += count);
+                                c.SayMe($"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {count / winnerCount} {(winners.Count() > 1 ? "each " : "")}pointz FeelsGoodMan");
+                                winners.Do(winner => winner.Points += count / winnerCount);
                             }
                             else
                             {
-                                c.SayMe($"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {item.GetNumber(count)} {(winners.Count() > 1 ? "each " : "")}FeelsGoodMan");
-                                winners.Do(winner => winner.AddItem(item.Name, count));
+                                c.SayMe($"The reffle ended and {string.Join(", ", winners.Select(w => w.Name))} won {item.GetNumber(count / winnerCount)} {(winners.Count() > 1 ? "each " : "")}FeelsGoodMan");
+                                winners.Do(winner => winner.AddItem(item.Name, count / winnerCount));
                             }
                         }
                         else
@@ -2317,7 +2326,8 @@ namespace twitchbot
                         var name = match.Groups["name"].Value.ToLower();
                         bool adminOnly = name.IndexOf('%') != -1;
                         bool channelOnly = name.IndexOf('#') != -1;
-                        name = name.TrimStart(new char[] { '%', '#' });
+                        bool ignoreExceptions = name.IndexOf('!') != -1;
+                        name = name.TrimStart(new char[] { '%', '#', '!' });
 
                         var expression = match.Groups["command"].Value;
                         lock (c.ChannelEvalCommands)
@@ -2331,9 +2341,9 @@ namespace twitchbot
                                     c.ChannelEvalCommands.RemoveAt(index);
 
                                 if (channelOnly)
-                                    c.ChannelEvalCommands.Add(new EvalCommand(bot, name, expression) { AdminOnly = adminOnly });
+                                    c.ChannelEvalCommands.Add(new EvalCommand(bot, name, expression, ignoreExceptions) { AdminOnly = adminOnly });
                                 else
-                                    bot.EvalCommands.Add(new EvalCommand(bot, name, expression) { AdminOnly = adminOnly });
+                                    bot.EvalCommands.Add(new EvalCommand(bot, name, expression, ignoreExceptions) { AdminOnly = adminOnly });
                             }
                     }
                 },
