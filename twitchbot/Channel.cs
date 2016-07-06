@@ -27,7 +27,7 @@ namespace twitchbot
 
         public ConcurrentDictionary<string, int> ModReffleValueAvailable { get; private set; } = new ConcurrentDictionary<string, int>();
         public ConcurrentDictionary<string, DateTime> CommandDescriptionCooldown { get; private set; } = new ConcurrentDictionary<string, DateTime>();
-        public TimeSpan DefaultCommandDescriptionCooldown = TimeSpan.FromMinutes(1);
+        public TimeSpan DefaultCommandDescriptionCooldown = TimeSpan.FromMinutes(0.75);
 
         public bool CanPostCommandDescription(string command)
         {
@@ -58,6 +58,12 @@ namespace twitchbot
         public abstract void Say(string message, bool slashMe, bool force);
         public abstract void SayRaw(string message, bool force);
 
+        public PyramideType PyramideType { get; set; } = PyramideType.None;
+        public int PyramideWidth { get; set; } = 0;
+        public int PyramideHeight { get; set; }
+        public TwitchEmote PyramideEmote { get; set; }
+
+
         public void Say(string message)
         {
             Say(message, false, false);
@@ -86,6 +92,22 @@ namespace twitchbot
         {
             File.WriteAllLines($"./db/{ChannelSaveID}.evalcommands.txt", ChannelEvalCommands.Select(c => (c.AdminOnly ? "%" : "") + c.Name + "=" + c.Expression));
             Settings.Save($"./db/{ChannelSaveID}.settings.ini");
+            lock (BetEntries)
+            {
+                try
+                {
+                    if (BetEntries.Count == 0)
+                    {
+                        if (File.Exists($"./db/{ChannelSaveID}.bets.ini"))
+                            File.Delete($"./db/{ChannelSaveID}.bets.ini");
+                    }
+                    else
+                    {
+                        File.WriteAllLines($"./db/{ChannelSaveID}.bets.ini", new string[] { CurrentBetName }.Concat(BetEntries.Select(x => x.UserID + ":" + x.Points + ":" + x.Score.Item1 + ":" + x.Score.Item2)));
+                    }
+                }
+                catch { }
+            }
         }
 
         public virtual void Load()
@@ -120,6 +142,27 @@ namespace twitchbot
 
             }
             Settings.Load($"./db/{ChannelSaveID}.settings.ini");
+
+            try
+            {
+                if (File.Exists($"./db/{ChannelSaveID}.bets.ini"))
+                {
+                    using (var r = new StreamReader($"./db/{ChannelSaveID}.bets.ini"))
+                    {
+                        CurrentBetName = r.ReadLine();
+                        string line;
+                        while ((line = r.ReadLine()) != null)
+                        {
+                            var S = line.Split(':');
+                            lock (BetEntries)
+                            {
+                                BetEntries.Add(new SportsBetItem { UserID = S[0], Points = long.Parse(S[1]), Score = Tuple.Create(int.Parse(S[2]), int.Parse(S[3])) });
+                            }
+                        }
+                    }
+                }
+            }
+            catch {; }
         }
 
         public abstract void TryWhisperUser(User u, string message);
@@ -180,6 +223,18 @@ namespace twitchbot
             public User From { get; set; }
             public User To { get; set; }
             public DateTime ExpireDate { get; set; }
+        }
+
+        // SOCCER BETS
+        public string CurrentBetName { get; set; } = null;
+        public bool BetClosed { get; set; } = true;
+        public List<SportsBetItem> BetEntries = new List<SportsBetItem>();
+
+        public class SportsBetItem
+        {
+            public string UserID { get; set; }
+            public long Points { get; set; }
+            public Tuple<int, int> Score { get; set; }
         }
 
         // RAFFLES

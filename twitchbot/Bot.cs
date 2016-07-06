@@ -301,24 +301,8 @@ namespace twitchbot
 
                 TwitchBotName = username;
 
-                void onRawMessage(object s, IrcEventArgs e)
-                {
-                    if (e.Data.RawMessageArray.Length > 4 && e.Data.RawMessageArray[2] == "PRIVMSG")
-                    {
-                        OnTwitchChannelMessage(e.Data);
-                    }
-                    if (Program.Parameters.Verbose)
-                        Util.Log(e.Data.RawMessage);
-
-                    if (e.Data.RawMessageArray.Length > 0 && e.Data.RawMessageArray[0] == "PONG")
-                    {
-                        "received PING".Log("irc");
-                        receivedTwitchPong = true;
-                    }
-                };
-
                 // connect irc
-                void connect()
+                Action connect = () =>
                 {
                     TwitchIrc = new IrcClient();
                     TwitchIrc.Encoding = new UTF8Encoding();
@@ -375,7 +359,6 @@ namespace twitchbot
                     if (connectedTwitch)
                     {
                         receivedTwitchPong = false;
-                        "sent PING".Log("irc");
                         TwitchIrc.WriteLine("PING");
 
                         QueueAction(15, () =>
@@ -396,6 +379,21 @@ namespace twitchbot
                 };
 
                 twitchPingTimer.Start();
+            }
+        }
+
+        void onRawMessage(object s, IrcEventArgs e)
+        {
+            if (e.Data.RawMessageArray.Length > 4 && e.Data.RawMessageArray[2] == "PRIVMSG")
+            {
+                OnTwitchChannelMessage(e.Data);
+            }
+            if (Program.Parameters.Verbose)
+                Util.Log(e.Data.RawMessage);
+
+            if (e.Data.RawMessageArray.Length > 0 && e.Data.RawMessageArray[0] == "PONG")
+            {
+                receivedTwitchPong = true;
             }
         }
 
@@ -425,10 +423,15 @@ namespace twitchbot
                     u.Name = data.Tags["display-name"];
 
                 // emotes
-                if (C.EmoteClrServer != null)
+                //if (C.EmoteClrServer != null)
                 {
                     int firstOccurence = -1;
                     TwitchEmote emote = null;
+
+                    var S = message.SplitWords();
+                    int wordCount = S.Length;
+                    int emoteCount = 0;
+                    bool allSameEmotes = true;
 
                     if (data.Tags.ContainsKey("emotes") && !string.IsNullOrWhiteSpace(data.Tags["emotes"]))
                     {
@@ -437,32 +440,130 @@ namespace twitchbot
                             // 80481:0-4,6-10,12-16,18-22/93064:24-30
 
                             string[] emotes = data.Tags["emotes"].Split('/');
+
                             string firstEmote = emotes[0];
+
+                            foreach (string item in emotes.Skip(1))
+                            {
+                                if (item != firstEmote)
+                                {
+                                    allSameEmotes = false;
+                                    break;
+                                }
+                            }
+
                             int index = firstEmote.IndexOf(':');
                             string id = firstEmote.Remove(index);
 
                             firstOccurence = int.Parse(firstEmote.Substring(index + 1).Split(',')[0].Split('-')[0]);
+
+                            emoteCount += firstEmote.Substring(index + 1).Count(x => x == ',') + 1;
 
                             TwitchEmotesById.TryGetValue(int.Parse(id), out emote);
                         }
                         catch { }
                     }
 
-                    if (emote == null)
+                    TwitchEmote e = null;
+                    TwitchEmote lastEmote = null;
+                    foreach (string s in S)
                     {
-                        string[] S = message.SplitWords();
-                        BttvGlobalEmotes.TryGetValue(S.FirstOrDefault(x => BttvGlobalEmotes.ContainsKey(x)) ?? "", out emote);
+                        if (BttvGlobalEmotes.TryGetValue(s, out e) || C.BttvChannelEmotes.TryGetValue(s, out e))
+                        {
+                            emoteCount++;
+                            if (emote != null && e != lastEmote)
+                            {
+                                allSameEmotes = false;
+                                break;
+                            }
+                            lastEmote = e;
+                        }
                     }
+                    emote = emote ?? lastEmote;
 
-                    if (emote == null)
+                    if (C.Settings.EnablePyramids && allSameEmotes && S.Length == emoteCount)
                     {
-                        string[] S = message.SplitWords();
-                        C.BttvChannelEmotes.TryGetValue(S.FirstOrDefault(x => C.BttvChannelEmotes.ContainsKey(x)) ?? "", out emote);
+                        if (emote != C.PyramideEmote)
+                        {
+                            C.PyramideType = PyramideType.None;
+                        }
+                        C.PyramideEmote = emote;
+
+                        start:
+
+                        switch (C.PyramideType)
+                        {
+                            case PyramideType.None:
+                                C.PyramideHeight = 1;
+                                if (S.Length == 1)
+                                {
+                                    C.PyramideType = PyramideType.SingleEmote;
+                                }
+                                else
+                                {
+                                    C.PyramideType = PyramideType.E;
+                                    C.PyramideWidth = S.Length;
+                                }
+                                break;
+                            case PyramideType.SingleEmote:
+                                if (S.Length > 3)
+                                {
+                                    C.PyramideType = PyramideType.Hammer;
+                                    C.PyramideWidth = S.Length;
+                                }
+                                else
+                                {
+                                    C.PyramideType = PyramideType.None;
+                                    goto start;
+                                }
+                                break;
+                            case PyramideType.Hammer:
+                                if (S.Length == 1)
+                                {
+                                    C.SayMe($"Congratulation {u}, you finished a {C.PyramideWidth} width and {C.PyramideHeight} height {emote.Name} {(u.ID == "swiftapples" || !C.Settings.EnableGachi ? "hammer" : "dick")} PogChamp");
+                                    C.PyramideType = PyramideType.None;
+                                }
+                                else
+                                {
+                                    if (C.PyramideWidth != S.Length)
+                                        C.PyramideType = PyramideType.None;
+                                }
+                                break;
+                            case PyramideType.E:
+                                if (C.PyramideHeight == 2 || C.PyramideHeight == 4)
+                                {
+                                    if (S.Length != 1)
+                                    {
+                                        C.PyramideType = PyramideType.None;
+                                    }
+                                }
+                                else
+                                {
+                                    {
+                                        if (C.PyramideHeight == 5)
+                                        {
+                                            C.SayMe($"Congratulations {u}, you finished a {C.PyramideWidth} width {emote.Name} \"E\" PogChamp");
+                                            C.PyramideType = PyramideType.None;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        C.PyramideType = PyramideType.None;
+                                    }
+                                }
+                                break;
+                        }
+
+                        C.PyramideHeight++;
+                    }
+                    else
+                    {
+                        C.PyramideType = PyramideType.None;
                     }
 
                     if (emote != null)
                     {
-                        C.EmoteClrServer.SendEmote(emote.Url);
+                        C.EmoteClrServer?.SendEmote(emote.Url);
                     }
                 }
 
@@ -922,9 +1023,9 @@ namespace twitchbot
                                                 goto veryend;
                                         }
                                     }
-                                end:;
+                                    end:;
                                 }
-                            veryend:;
+                                veryend:;
                             }
                         }
                     }

@@ -16,8 +16,22 @@ namespace twitchbot
         public bool EnableLinks { get; set; } = true;
         public bool EnableGachi { get; set; } = true;
         public bool EnableTimeouts { get; set; } = false;
+        public bool EnablePyramids { get; set; } = true;
         public int MaxMessageLength { get; set; } = 350;
         public int MaxInventoryItemPrint { get; set; } = 20;
+
+        private string disableCommandAliases = "";
+        public string DisabledCommandAliases
+        {
+            get { return disableCommandAliases; }
+            set { disableCommandAliases = value; disabledCommandAliasesList = value.Split(','); }
+        }
+
+        private string[] disabledCommandAliasesList = new string[0];
+        public string[] DisabledCommandAliasesList
+        {
+            get { return disabledCommandAliasesList; }
+        }
 
         // static stuff
         static ConcurrentDictionary<string, PropertyInfo> properties = new ConcurrentDictionary<string, PropertyInfo>();
@@ -28,7 +42,8 @@ namespace twitchbot
 
             foreach (var property in T.GetProperties())
             {
-                properties[property.Name] = property;
+                if (property.CanRead && property.CanWrite)
+                    properties[property.Name] = property;
             }
         }
 

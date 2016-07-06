@@ -240,7 +240,6 @@ namespace twitchbot
             return true;
         }
 
-
         // Showitem
         public static string GetNumber(this ShopItem item, long count)
         {

@@ -124,23 +124,26 @@ namespace twitchbot.Twitch
                 messageTimer = new System.Timers.Timer(isMod ? 0.01 : 1.1);
                 messageTimer.Elapsed += (s, e) =>
                 {
-                    lock (messageQueue)
+                    if (messagecount < (IsMod ? 40 : 10))
                     {
-                        while (messageQueue.Count > 0)
+                        lock (messageQueue)
                         {
-                            Message msg = messageQueue.Dequeue();
+                            while (messageQueue.Count > 0)
+                            {
+                                Message msg = messageQueue.Dequeue();
 
-                            if (msg.ExpireDate < DateTime.Now)
-                                continue;
+                                if (msg.ExpireDate < DateTime.Now)
+                                    continue;
 
-                            messagecount++;
+                                messagecount++;
 
-                            Bot.TwitchIrc?.SendMessage(SendType.Message, "#" + msg.Channel, msg.Text);
+                                Bot.TwitchIrc?.SendMessage(SendType.Message, "#" + msg.Channel, msg.Text);
 
-                            break;
+                                break;
+                            }
+
+                            messageTimer.Enabled = messageQueue.Count > 0;
                         }
-
-                        messageTimer.Enabled = messageQueue.Count > 0;
                     }
                 };
             }
@@ -182,7 +185,7 @@ namespace twitchbot.Twitch
                 if (!messageTimer.Enabled)
                 {
                     messagecount++;
-                    if (messagecount < (IsMod ? 50 : 10))
+                    if (messagecount < (IsMod ? 40 : 10))
                     {
                         lastMessage = DateTime.Now;
                         Bot.TwitchIrc?.SendMessage(SendType.Message, "#" + ChannelName, message);

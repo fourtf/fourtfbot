@@ -1421,6 +1421,186 @@ namespace twitchbot
             }));
             #endregion
 
+            #region bettings
+            bot.Commands.Add(new Command(
+            "bet",
+            (m, u, c) =>
+            {
+                int i = 0;
+                List<Tuple<ShopItem, long>> betItems = new List<Tuple<ShopItem, long>>();
+
+                Tuple<int, int> result = null;
+                var match = Regex.Match(m, @"\b(\d+:\d+)\b");
+                if (match.Success)
+                {
+                    string[] score = match.Value.Split(':');
+                    result = Tuple.Create(int.Parse(score[0]), int.Parse(score[1]));
+                    m = Regex.Replace(m, @"\b(\d+:\d+)\b", "");
+                }
+
+                string[] S = m.ToLowerInvariant().SplitWords();
+
+                long count;
+                if (result != null && S.TryGetInt(1, false, u.Points, out count))
+                {
+                    lock (c.BetEntries)
+                    {
+                        if (c.BetClosed)
+                        {
+                            c.Say($"{u}, the bet is closed.");
+                            return;
+                        }
+                        if (count > u.Points)
+                        {
+                            c.TryWhisperUser(u, "you don't have that many pointz");
+                            return;
+                        }
+                        var item = c.BetEntries.FirstOrDefault(x => x.Score.Item1 == result.Item1 && x.Score.Item2 == result.Item2);
+                        if (item != null)
+                            item.Points += count;
+                        else
+                            c.BetEntries.Add(new Channel.SportsBetItem { Points = count, UserID = u.ID, Score = result });
+                        u.Points -= count;
+                        c.Say($"{u}, you bet {count} points on {result.Item1}:{result.Item2}");
+                    }
+                }
+                else if (S.TryIsString(1, "open"))
+                {
+                    if (u.IsMod)
+                    {
+                        $"{u.Name} {m}".Log("mods");
+
+                        if (c.CurrentBetName != null)
+                        {
+                            c.Say($"{u}, there already is a bet open.");
+                            return;
+                        }
+
+                        var name = m.SubstringFromWordIndex(2);
+
+                        if (string.IsNullOrWhiteSpace(name))
+                        {
+                            c.Say($"{u}, you need to specify a name to open a bet !bet open <name>");
+                            return;
+                        }
+
+                        c.CurrentBetName = name;
+                        c.BetClosed = false;
+                        c.SayMe($"A bet ({name}) started. Type !bet <count> 1:0 to bet on an outcome.");
+                    }
+                }
+                else if (S.TryIsString(1, "close"))
+                {
+                    if (c.BetClosed)
+                    {
+                        c.Say($"{u}, the bet is already closed.");
+                        return;
+                    }
+
+                    c.BetClosed = true;
+                    c.Say($"{u}, the bet was closed.");
+                }
+                else if (S.TryIsString(1, "end"))
+                {
+                    if (u.IsMod && c.CurrentBetName != null)
+                    {
+                        if (c.BetClosed)
+                        {
+                            c.Say($"{u}, the bet is not closed.");
+                            return;
+                        }
+
+                        $"{u.Name} {m}".Log("mods");
+
+                        List<Tuple<User, long>> winners = new List<Tuple<User, long>>();
+
+                        long pot = 0L;
+                        long winnerPot = 0L;
+
+                        lock (c.BetEntries)
+                        {
+                            foreach (var item in c.BetEntries)
+                            {
+                                pot += item.Points;
+                                if (item.Score.Item1 == result.Item1 && item.Score.Item2 == result.Item2)
+                                {
+                                    winnerPot += item.Points;
+                                    winners.Add(Tuple.Create(c.UsersByID[item.UserID], item.Points));
+                                }
+                            }
+                        }
+
+                        if (winners.Count == 0)
+                            c.SayMe($"The betting ended but nobody won LUL");
+                        else if (winners.Count == 1)
+                        {
+                            c.SayMe($"The betting ended and {winners[0].Item1} won {pot} pointz KKaper");
+                            winners[0].Item1.Points += pot;
+                        }
+                        else
+                        {
+                            if (winners.Count < 10)
+                                c.SayMe($"{string.Join(", ", winners.Select(x => x.Item1.Name))} won the betting and got pointz according to their bets");
+                            else
+                                c.SayMe($"{winners.Count} people won the betting and got pointz according to their bets");
+
+                            double multiplicator = (double)pot / winnerPot;
+
+                            foreach (var item in winners)
+                            {
+                                item.Item1.Points += (long)(multiplicator * item.Item2);
+                                c.TryWhisperUser(item.Item1, $"Congratualtions {u}, you won {item.Item2} pointz.");
+                            }
+                        }
+                    }
+                }
+                else if (S.TryIsString(1, "cancel"))
+                {
+                    if (u.IsMod && c.CurrentBetName != null)
+                    {
+                        $"{u.Name} {m}".Log("mods");
+
+                        lock (c.BetEntries)
+                        {
+                            foreach (var item in c.BetEntries)
+                            {
+                                try
+                                {
+                                    c.UsersByID[item.UserID].Points += item.Points;
+                                }
+                                catch { }
+                            }
+                        }
+                        c.SayMe("The bet was canceled and the pointz were refunded KKaper");
+                    }
+                }
+                else if (S.TryIsString(1, "pot"))
+                {
+                    if (c.CurrentBetName != null)
+                    {
+                        lock (c.BetEntries)
+                        {
+                            long pot = 0L;
+                            foreach (var x in c.BetEntries)
+                                pot += x.Points;
+
+                            c.SayMe($"The current pot is {pot} pointz.");
+                        }
+                    }
+                    else
+                        c.SayMe("No bet open KKaper");
+                }
+                else
+                {
+                    if (c.CurrentBetName == null)
+                        c.SayMe($"{u}, there is currently no bet open.");
+                    else
+                        c.SayMe($"{u}, the current bet is {c.CurrentBetName}. Type !bet <count> 1:0 to bet pointz on an outcome.");
+                }
+            }
+            ));
+            #endregion
+
 
             // MISC COMMANDS
             #region randomgachi
@@ -1536,39 +1716,39 @@ namespace twitchbot
             int topCount = 3;
 
             bot.Commands.Add(new Command(
-                "top",
-                (m, u, c) =>
-                {
-                    string[] S = m.ToLower().SplitWords();
-                    if (S.Length >= 2)
-                    {
-                        string item = S[1];
+                            "top",
+                            (m, u, c) =>
+                            {
+                                string[] S = m.ToLower().SplitWords();
+                                if (S.Length >= 2)
+                                {
+                                    string item = S[1];
 
-                        if (item == "point" || item == "pointz" || item == "points")
-                        {
-                            c.Say($"{u}, top pointz: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Points * -1).Take(topCount).Where(user => user.Points != 0).Select(user => $"{user.NameNoPing} ({user.Points})"))}");
-                        }
-                        else if (item == "calorie" || item == "calories")
-                        {
-                            c.Say($"{u}, top calories: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Calories * -1).Take(topCount).Where(user => user.Calories != 0).Select(user => $"{user.NameNoPing} ({user.Calories})"))}");
-                        }
-                        else if (item == "message" || item == "messages")
-                        {
-                            c.Say($"{u}, top messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.MessageCount * -1).Take(topCount).Where(user => user.MessageCount != 0).Select(user => $"{user.NameNoPing} ({user.MessageCount})"))}");
-                        }
-                        else if (item == "characters" || item == "chars")
-                        {
-                            c.Say($"{u}, top characters in messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.CharacterCount * -1).Where(user => user.CharacterCount != 0).Take(topCount).Select(user => $"{user.NameNoPing} ({user.CharacterCount})"))}");
-                        }
-                        else
-                        {
-                            ShopItem i = ShopItem.GetItem(item);
-                            if (i != null)
-                                c.Say($"{u}, top {i.GetPlural()}: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.ItemCount(i.Name) * -1).Take(topCount).Where(user => user.ItemCount(i.Name) != 0).Select(user => $"{user.NameNoPing} ({user.ItemCount(i.Name)})"))}");
-                        }
-                    }
-                }, hasUserCooldown: false
-                ));
+                                    if (item == "point" || item == "pointz" || item == "points")
+                                    {
+                                        c.Say($"{u}, top pointz: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Points * -1).Take(topCount).Where(user => user.Points != 0).Select(user => $"{user.NameNoPing} ({user.Points})"))}");
+                                    }
+                                    else if (item == "calorie" || item == "calories")
+                                    {
+                                        c.Say($"{u}, top calories: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.Calories * -1).Take(topCount).Where(user => user.Calories != 0).Select(user => $"{user.NameNoPing} ({user.Calories})"))}");
+                                    }
+                                    else if (item == "message" || item == "messages")
+                                    {
+                                        c.Say($"{u}, top messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.MessageCount * -1).Take(topCount).Where(user => user.MessageCount != 0).Select(user => $"{user.NameNoPing} ({user.MessageCount})"))}");
+                                    }
+                                    else if (item == "characters" || item == "chars")
+                                    {
+                                        c.Say($"{u}, top characters in messages: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.CharacterCount * -1).Where(user => user.CharacterCount != 0).Take(topCount).Select(user => $"{user.NameNoPing} ({user.CharacterCount})"))}");
+                                    }
+                                    else
+                                    {
+                                        ShopItem i = ShopItem.GetItem(item);
+                                        if (i != null)
+                                            c.Say($"{u}, top {i.GetPlural()}: {string.Join(", ", c.UsersByName.Values.OrderBy(x => x.ItemCount(i.Name) * -1).Take(topCount).Where(user => user.ItemCount(i.Name) != 0).Select(user => $"{user.NameNoPing} ({user.ItemCount(i.Name)})"))}");
+                                    }
+                                }
+                            }, hasUserCooldown: false
+                            ));
             #endregion
 
             #region bottompointzs
@@ -1875,6 +2055,19 @@ namespace twitchbot
                     }
                 },
                 adminOnly: true));
+
+            bot.Commands.Add(new Command(
+                "all",
+                (m, u, c) =>
+                {
+                    var _flag = m.SplitWords()[1];
+
+                    UserFlags flag;
+                    if (Enum.TryParse(_flag, true, out flag) || Enum.TryParse(_flag.Remove(_flag.Length - 1), out flag))
+                    {
+                        c.Say($"{flag.ToString()}: {string.Join(", ", c.UsersByID.Values.Where(x => (x.Flags & flag) == flag))}");
+                    }
+                }, modOnly: true));
             #endregion
 
             #region reffle
@@ -2080,27 +2273,27 @@ namespace twitchbot
             Regex addCommandRegex = new Regex(@"^[^\s]+ \s+ (?<name>[^\s]+) \s+ (?<command>.+)$", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace);
 
             bot.Commands.Add(new Command(
-                "command",
-                (m, u, c) =>
-                {
-                    string[] S = m.SplitWords();
-
-                    if (S.Length > 1)
-                    {
-                        lock (bot.EvalCommands)
-                            lock (c.ChannelEvalCommands)
+                            "command",
+                            (m, u, c) =>
                             {
-                                string name = S[1].ToLower();
+                                string[] S = m.SplitWords();
 
-                                var command = bot.EvalCommands.FirstOrDefault(x => x.Name == name) ?? c.ChannelEvalCommands.FirstOrDefault(x => x.Name == name);
-                                if (command != null)
+                                if (S.Length > 1)
                                 {
-                                    c.Say($"{u}, {command.Expression}");
+                                    lock (bot.EvalCommands)
+                                        lock (c.ChannelEvalCommands)
+                                        {
+                                            string name = S[1].ToLower();
+
+                                            var command = bot.EvalCommands.FirstOrDefault(x => x.Name == name) ?? c.ChannelEvalCommands.FirstOrDefault(x => x.Name == name);
+                                            if (command != null)
+                                            {
+                                                c.Say($"{u}, {command.Expression}");
+                                            }
+                                        }
                                 }
-                            }
-                    }
-                },
-                adminOnly: true));
+                            },
+                            adminOnly: true));
 
             bot.Commands.Add(new Command(
                 "allcommands",
@@ -2229,24 +2422,52 @@ namespace twitchbot
             };
 
             bot.Commands.Add(new Command(
-                "tase",
-                (m, u, c) =>
-                {
-                    string[] S = m.ToLower().SplitWords();
+                            "tase",
+                            (m, u, c) =>
+                            {
+                                string[] S = m.ToLower().SplitWords();
 
-                    User user;
+                                User user;
 
-                    if (S.TryGetUser(1, c, out user))
-                    {
-                        if (u.HasItem("taser", 1))
-                        {
-                            if ((c as Twitch.TwitchChannel)?.IsMod ?? false && c.Settings.EnableTimeouts)
-                                c.SayRaw($"/timeout {user.Name} 3", false);
-                            c.Say($"{u} tased {user} {tasePhrases[Util.GetRandom(0, tasePhrases.Length)]}");
-                        };
-                    }
+                                if (S.TryGetUser(1, c, out user))
+                                {
+                                    if (u.HasItem("taser", 1))
+                                    {
+                                        if ((c as Twitch.TwitchChannel)?.IsMod ?? false && c.Settings.EnableTimeouts)
+                                            c.SayRaw($"/timeout {user.Name} 3", false);
+                                        c.Say($"{u} tased {user} {tasePhrases[Util.GetRandom(0, tasePhrases.Length)]}");
+                                    };
+                                }
 
-                }));
+                            }));
+            #endregion
+
+            #region pepperspray
+            string[] sprayPhrases = new[] {
+                "directly in the eyes WutFace",
+                "and they got triggered HotPokket",
+                "but apparently the can is empty",
+            };
+
+            bot.Commands.Add(new Command(
+                            "spray",
+                            (m, u, c) =>
+                            {
+                                string[] S = m.ToLower().SplitWords();
+
+                                User user;
+
+                                if (S.TryGetUser(1, c, out user))
+                                {
+                                    if (u.HasItem("pepperspray", 1))
+                                    {
+                                        if ((c as Twitch.TwitchChannel)?.IsMod ?? false && c.Settings.EnableTimeouts)
+                                            c.SayRaw($"/timeout {user.Name} 3", false);
+                                        c.Say($"{u} peppersprayed {user} {sprayPhrases[Util.GetRandom(0, sprayPhrases.Length)]}");
+                                    };
+                                }
+
+                            }));
             #endregion
 
             #region collect

@@ -98,6 +98,7 @@
     <Compile Include="EmoteClrServer.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="PyramideType.cs" />
     <Compile Include="Settings.cs" />
     <Compile Include="ShopItem.cs" />
     <Compile Include="Song.cs" />
